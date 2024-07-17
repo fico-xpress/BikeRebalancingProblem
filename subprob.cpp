@@ -13,10 +13,11 @@ using namespace xpress::objects;
 int main() {
     try {
         int NR_STATIONS = 4;
-        int NR_BIKES = -1;
-        // std::vector<double> x_i   = { 2,  3,   16, 25 };
-        std::vector<double> k_i   = { 10, 15,  20, 30 };
-        std::vector<double> d_i_s = { 4,  -5,  8,  -8 };
+        int NR_BIKES = 46;
+
+        std::vector<double> x_fixed = { 2,  3,   16, 25 };
+        std::vector<double> k_i     = { 10, 15,  20, 30 };
+        std::vector<double> d_i_s   = { 4,  -5,  8,  -8 };
         std::vector<std::vector<double>> c_ij(NR_STATIONS, std::vector<double>(NR_STATIONS, 10));
         std::vector<double> q_i_1(NR_STATIONS, 10);
         std::vector<double> q_i_2(NR_STATIONS, 10);
@@ -26,17 +27,11 @@ int main() {
         prob.callbacks->addMessageCallback(XpressProblem::CallbackAPI::console);
 
         /* VARIABLES */
-        // Create first-stage variables x
-        std::vector<xpress::objects::Variable> x = prob.addVariables(NR_STATIONS)
-            .withType(ColumnType::Continuous)
-            .withLB(0)
-            .withName([](int i){ return xpress::format("x_%d", i); })
-            .toArray();
-
         // Create recourse variables y
         std::vector<std::vector<xpress::objects::Variable>> y = prob.addVariables(NR_STATIONS, NR_STATIONS)
             .withType(ColumnType::Continuous)
             .withLB(0)
+            .withUB([&](int i, int j) {return k_i[i];})
             .withName([](int i, int j){ return xpress::format("y(%d,%d)", i, j); })
             .toArray();
 
@@ -44,6 +39,7 @@ int main() {
         std::vector<xpress::objects::Variable> u = prob.addVariables(NR_STATIONS)
             .withType(ColumnType::Continuous)
             .withLB(0)
+            .withUB(NR_BIKES)
             .withName([](int i){ return xpress::format("u_%d", i); })
             .toArray();
 
@@ -51,15 +47,11 @@ int main() {
         std::vector<xpress::objects::Variable> o = prob.addVariables(NR_STATIONS)
             .withType(ColumnType::Continuous)
             .withLB(0)
+            .withUB(NR_BIKES)
             .withName([](int i){ return xpress::format("o_%d", i); })
             .toArray();
 
         /* CONSTRAINTS */
-
-        // First Stage decision
-        // prob.addConstraints(NR_STATIONS, [&](int i) {
-        //     return (x[i] == x_i[i]).setName(xpress::format("FirstStage_%d", i));
-        // });
 
         std::vector<LinExpression> end_of_day_net_recourse_flows(NR_STATIONS);
         std::vector<Expression> during_day_net_customer_flows(NR_STATIONS);
@@ -83,19 +75,15 @@ int main() {
 
         // u[i] == max(0, d_i_s[i] - x[i])
         prob.addConstraints(NR_STATIONS, [&](int i) {
-            return (u[i] == Utils::max(d_i_s[i] - x[i], ConstantExpression(0.0)))
+            return (u[i] == std::max(d_i_s[i] - x_fixed[i], 0.0))
                     .setName(xpress::format("UnmetDem_S%d", i));
         });
 
+        // o[i] == max(0, -d_i_s[i] - (k_i[i] - x[i]))
         prob.addConstraints(NR_STATIONS, [&](int i) {
-            return (o[i] == Utils::max(-d_i_s[i] - (k_i[i] - x[i]), ConstantExpression(0.0)))
+            return (o[i] == std::max(-d_i_s[i] - (k_i[i] - x_fixed[i]), 0.0))
                     .setName(xpress::format("Overflow_S%d", i));
         });
-
-        // non-negativity constraints
-        prob.addConstraints(NR_STATIONS, [&](int i) { return u[i] >= 0; });
-        prob.addConstraints(NR_STATIONS, [&](int i) { return o[i] >= 0; });
-        prob.addConstraints(NR_STATIONS, NR_STATIONS, [&](int i, int j) { return y[i][j] >= 0; });
 
         /* OBJECTIVE */
 
@@ -134,7 +122,7 @@ int main() {
         std::vector<double> sol = prob.getSolution();
 
         // Loop over the relevant variables and print their name and value
-        for (Variable x_i : x) std::cout << x_i.getName() << " = " << x_i.getValue(sol) << std::endl;
+        for (int i=0; i<NR_STATIONS; i++) std::cout << "x_" << i << " = " << x_fixed[i] << std::endl;
         std::cout << std::endl;
 
         for (int i=0; i<NR_STATIONS; i++) {
