@@ -36,11 +36,12 @@
 
 
 #### C++ ########
-CPP_FLAGS=/Zc:__cplusplus /nologo /EHsc /Zi /MD /I$(XPRESSDIR_CPP)\include
-LIB_FLAGS=/link /libpath:$(XPRESSDIR_CPP)\lib xprs.lib xprscxx.lib
+ADDITIONAL_CPP_SOURCES = DataFrame.cpp
+CPP_FLAGS = /Zc:__cplusplus /std:c++17 /nologo /EHsc /Zi /MD /I"$(XPRESSDIR_CPP)\include"
+LIB_FLAGS = /link /libpath:$(XPRESSDIR_CPP)\lib xprs.lib xprscxx.lib
 
 # Two specific warning IDs to ignore. Do not ignore any other warnings
-IGNORE_WARNINGS=/wd4616 /wd4293
+IGNORE_WARNINGS = /wd4616 /wd4293
 
 .cpp.exe:
     $(CPP) $(CPP_FLAGS) $(IGNORE_WARNINGS) $< $(LIB_FLAGS)
