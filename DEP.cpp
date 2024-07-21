@@ -1,5 +1,7 @@
 #include <xpress.hpp>
-#include <stdexcept> // For throwing exceptions
+#include <stdexcept>   // For throwing exceptions
+#include <unordered_map>
+#include "DataFrame.h" // Requires at least C++17
 
 using namespace xpress;
 using namespace xpress::objects;
@@ -7,11 +9,52 @@ using namespace xpress::objects;
 
 // TODO: Investigate effect of using x*y == 0.0 instead of max(0.0, x) operator
 // TODO: Investigate effect of using partial integer variables instead of continuous or integer variables
-// TODO: Reformulate using pos and neg slack constraints.
 // TODO: Try making additional constraints for the LP-relaxation.
 
+std::vector<std::vector<double>> convertScenariosToMatrix(std::map<std::string, DataFrame> scenarios) {
+    std::vector<std::vector<double>> matrix;
+
+    for (auto& [name, df] : scenarios) {
+        // df.sortByColumn("station number");
+
+        // std::vector<std::string> stationIDs = df.getColumn<std::string>("station number");
+        // std::cout << stationIDs[0] << ", " << stationIDs[stationIDs.size()-1] << std::endl;
+
+        std::vector<double> classicNetColumn = df.getColumn<double>("CLASSIC_net");
+
+        matrix.push_back(std::move(classicNetColumn));
+    }
+
+    return matrix;
+}
+
+
 int main() {
+
     try {
+        std::string tripDataFilename = "./394_Net_Data.csv";
+        std::string stationDataFilename = "./Station_Info.csv";
+        DataFrame tripData    = DataFrame::readCSV(tripDataFilename);
+        DataFrame stationData = DataFrame::readCSV(stationDataFilename);
+
+        tripData.convertColumnToDouble("CLASSIC_net");
+        stationData.convertColumnToDouble("nbDocks");
+
+        std::map<std::string, DataFrame> scenarios = tripData.groupBy<std::string>("date");
+        // for (auto& [scenarioName, scenarioValues] : scenarios) {
+        //     std::cout << scenarioName << ": " << scenarioValues.length() << std::endl;
+        //     scenarioValues.printColumnSizes();
+        // }
+
+        std::vector<double> capacities_i = stationData.getColumn<double>("nbDocks");
+        std::vector<std::vector<double>> demand_s_i = convertScenariosToMatrix(scenarios);
+
+        std::cout << demand_s_i.size() << ", " << demand_s_i[0].size();
+
+        return 0;
+
+
+
         int NR_STATIONS = 4;
         int NR_BIKES = 46;
 
@@ -187,3 +230,5 @@ int main() {
         return -1;
     }
 }
+
+
