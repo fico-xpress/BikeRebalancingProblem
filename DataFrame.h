@@ -13,7 +13,10 @@
 
 class DataFrame {
 public:
-    using ColDataType = std::variant<std::vector<std::string>, std::vector<double>>;
+    using ColDataType = std::variant<
+                            std::vector<std::string>,
+                            std::vector<double>,
+                            std::vector<long long>>;
 
     template<typename T>
     void addColumn(const std::string& name);
@@ -22,6 +25,7 @@ public:
     template<typename T>
     std::vector<T> getColumn(const std::string& columnName) const;
     ColDataType getColumn(const std::string& columnName) const;
+    bool hasColumnName(const std::string& name) const;
 
     void convertColumnToDouble(const std::string& columnName);
 
@@ -29,10 +33,12 @@ public:
     std::map<T, DataFrame> groupBy(const std::string& columnName) const;
 
     static DataFrame readCSV(const std::string& filename);
+    void toCsv(const std::string& filename) const;
+    void toCsv(const std::string& filename, const char delim) const;
 
-    int length();
-    void printColumnSizes();
-    std::vector<std::string> columnNames();
+    size_t length() const;
+    void printColumnSizes() const;
+    std::vector<std::string> columnNames() const;
 
 private:
     std::map<std::string, ColDataType> columns;
@@ -110,18 +116,18 @@ void DataFrame::addColumn(const std::string& name, const ColDataType& column) {
 }
 
 
-int DataFrame::length() {
+size_t DataFrame::length() const {
     if (columns.empty()) return 0;
     return ColDataTypeUtils::size(columns.begin()->second);
 }
 
-void DataFrame::printColumnSizes() {
+void DataFrame::printColumnSizes() const {
     for (const auto& col : columns) {
         std::cout << "\t" << col.first << ": " << ColDataTypeUtils::size(col.second) << std::endl;
     }
 }
 
-std::vector<std::string> DataFrame::columnNames() {
+std::vector<std::string> DataFrame::columnNames() const {
     std::vector<std::string> keys;
     for (const auto& col : columns) {
         keys.push_back(col.first);
@@ -129,6 +135,13 @@ std::vector<std::string> DataFrame::columnNames() {
     return keys;
 }
 
+bool DataFrame::hasColumnName(const std::string& name) const {
+    auto it = columns.find(name);
+    if (it != columns.end()) {
+        return true;
+    }
+    return false;
+}
 
 DataFrame::ColDataType DataFrame::getColumn(const std::string& name) const {
     auto it = columns.find(name);
@@ -189,6 +202,49 @@ DataFrame DataFrame::readCSV(const std::string &filename) {
 
     file.close();
     return df;
+}
+
+void DataFrame::toCsv(const std::string& filename) const {
+    toCsv(filename, ',');
+}
+
+// Function to write the DataFrame to a CSV file with ";" as delimiter
+void DataFrame::toCsv(const std::string& filename, const char delim) const {
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        throw std::runtime_error("Could not open file for writing");
+    }
+
+    // Write headers
+    bool firstColumn = true;
+    for (const auto& col : columns) {
+        if (!firstColumn) {
+            file << delim;
+        }
+        file << col.first;
+        firstColumn = false;
+    }
+    file << "\n";
+
+    // Determine the number of rows
+    size_t numRows = length();
+
+    // Write rows
+    for (size_t i = 0; i < numRows; i++) {
+        bool firstCell = true;
+        for (const auto& col : columns) {
+            if (!firstCell) {
+                file << delim;
+            }
+            std::visit([i, &file](const auto& colVec) {
+                file << colVec[i];
+            }, col.second);
+            firstCell = false;
+        }
+        file << "\n";
+    }
+
+    file.close();
 }
 
 
