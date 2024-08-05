@@ -1,6 +1,7 @@
 #include <xpress.hpp>
-#include <stdexcept>   // For throwing exceptions
+#include <stdexcept>
 #include <unordered_map>
+#include <chrono>
 #include "DataFrame.h" // Requires at least C++17
 
 using namespace xpress;
@@ -28,10 +29,30 @@ std::vector<std::vector<double>> convertScenariosToMatrix(std::map<std::string, 
     return matrix;
 }
 
+using TimeDataType = std::chrono::time_point<std::chrono::high_resolution_clock>;
+void saveTimeToInfoDf(DataFrame& infoDf, TimeDataType start, TimeDataType end, std::string columnName) {
+    long long duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    std::cout << "'" << columnName << "' took " << duration << "ms (" << duration/1000.0 << "s)" << std::endl;
+
+    if (!infoDf.hasColumnName(columnName)) {
+        infoDf.addColumn(columnName, std::vector<long long>{duration});
+        infoDf.toCsv("./time_data/infoDf.csv");
+    }
+}
+
 
 int main() {
 
+    bool SOLVE_LP_RELAXATION = false;
+
     try {
+        // For keeping track of timings and other info
+        DataFrame infoDf;
+        std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
+
+        // Count duration of data initialization
+        start = std::chrono::high_resolution_clock::now();
+
         std::string tripDataFilename = "./394_Net_Data.csv";
         std::string stationDataFilename = "./Station_Info.csv";
         DataFrame tripData    = DataFrame::readCSV(tripDataFilename);
@@ -48,33 +69,39 @@ int main() {
 
         std::vector<double> k_i = stationData.getColumn<double>("nbDocks");
         std::vector<std::vector<double>> d_s_i2 = convertScenariosToMatrix(scenarios);
-        std::vector<std::vector<double>> d_s_i = {d_s_i2[0], d_s_i2[1], d_s_i2[2], d_s_i2[3], d_s_i2[4]};
+        std::vector<std::vector<double>> d_s_i = {d_s_i2[0]};//, d_s_i2[1], d_s_i2[2], d_s_i2[3]};
 
         std::cout << "Nr scenarios: " << d_s_i.size() << std::endl;
         std::cout << "Nr stations: " << d_s_i[0].size() << std::endl;
 
-        // return 0;
-
-
+        // Dummy data:
         // std::vector<double> k_i     = { 10, 15,  20, 30 };
         // std::vector<std::vector<double>> d_s_i   = {{ 4,  -5,  9,  -8 }, { 6,  -4,  10,  -7 }};
+        // int NR_BIKES = 46;
 
         int NR_STATIONS = k_i.size();
         int NR_SCENARIOS = d_s_i.size();
 
-        // int NR_BIKES = 46;
-
-        // std::vector<double> x_fixed = { 2,  3,   16, 25 };
         std::vector<double> c_i(NR_STATIONS, 1);
         std::vector<std::vector<double>> c_ij(NR_STATIONS, std::vector<double>(NR_STATIONS, 10));
         std::vector<double> q_i_1(NR_STATIONS, 10);
         std::vector<double> q_i_2(NR_STATIONS, 10);
 
+        // End of data initialization
+        end = std::chrono::high_resolution_clock::now();
+        saveTimeToInfoDf(infoDf, start, end, "Data Initialization (ms)");
+
+        // XpressProblem& prob = modelDEP(k_i, d_s_i, c_i, c_ij, q_i_1, q_i_2, infoDf);
+
         // Create a problem instance
         XpressProblem prob;
         prob.callbacks->addMessageCallback(XpressProblem::CallbackAPI::console);
 
+
         std::cout << "CREATING VARIABLES" << std::endl;
+
+        // Count duration of variable creation
+        start = std::chrono::high_resolution_clock::now();
 
         /* VARIABLES */
         // Create first-stage variables x
@@ -84,6 +111,10 @@ int main() {
             .withName([](int i){ return xpress::format("x_%d", i); })
             .toArray();
 
+        // end = std::chrono::high_resolution_clock::now();
+        // saveTimeToInfoDf(infoDf, start, end, "Variables x (ms)");
+        // start = std::chrono::high_resolution_clock::now();
+
         // Create recourse variables y
         std::vector<std::vector<std::vector<xpress::objects::Variable>>> y = prob
             .addVariables(NR_SCENARIOS, NR_STATIONS, NR_STATIONS)
@@ -92,14 +123,9 @@ int main() {
             .withName([](int s, int i, int j){ return xpress::format("y_%d_(%d,%d)", s, i, j); })
             .toArray();
 
-        // Create unmet demand helper variables u
-        std::vector<std::vector<std::vector<xpress::objects::Variable>>> u = prob
-            .addVariables(NR_SCENARIOS, NR_STATIONS, 2)
-            .withType(ColumnType::Continuous)
-            .withLB(0)
-            .withUB([&](int s, int i, int j){ return k_i[i] + std::abs(d_s_i[s][i]); })
-            .withName([](int s, int i, int j){ return xpress::format("u%s_%d_%d", j%2==0 ? "Pos" : "Neg", s, i); })
-            .toArray();
+        // end = std::chrono::high_resolution_clock::now();
+        // saveTimeToInfoDf(infoDf, start, end, "Variables y (ms)");
+        // start = std::chrono::high_resolution_clock::now();
 
         // Create station overflow helper variables o
         std::vector<std::vector<std::vector<xpress::objects::Variable>>> o = prob
@@ -110,14 +136,37 @@ int main() {
             .withName([](int s, int i, int j){ return xpress::format("o%s_%d_%d", j%2==0 ? "Pos" : "Neg", s, i); })
             .toArray();
 
+        // end = std::chrono::high_resolution_clock::now();
+        // saveTimeToInfoDf(infoDf, start, end, "Variables o (ms)");
+        // start = std::chrono::high_resolution_clock::now();
+
+        // Create unmet demand helper variables u
+        std::vector<std::vector<std::vector<xpress::objects::Variable>>> u = prob
+            .addVariables(NR_SCENARIOS, NR_STATIONS, 2)
+            .withType(ColumnType::Continuous)
+            .withLB(0)
+            .withUB([&](int s, int i, int j){ return k_i[i] + std::abs(d_s_i[s][i]); })
+            .withName([](int s, int i, int j){ return xpress::format("u%s_%d_%d", j%2==0 ? "Pos" : "Neg", s, i); })
+            .toArray();
+
+        // end = std::chrono::high_resolution_clock::now();
+        // saveTimeToInfoDf(infoDf, start, end, "Variables u (ms)");
+        // start = std::chrono::high_resolution_clock::now();
+
+        // End of variable creation
+        end = std::chrono::high_resolution_clock::now();
+        saveTimeToInfoDf(infoDf, start, end, "Variable Creation (ms)");
 
         /* CONSTRAINTS */
         std::cout << "CREATING CONSTRAINTS" << std::endl;
 
+        // Count duration of constraint creation
+        start = std::chrono::high_resolution_clock::now();
+
         // First Stage decision
         // prob.addConstraint(Utils::sum(x) <= NR_BIKES);
         // prob.addConstraints(NR_STATIONS, [&](int i) {
-        //     return (x[i] == x_fixed[i]).setName(xpress::format("FirstStage_%d", i));
+        //     return (x[i] <= k_i[i]).setName(xpress::format("Capacity%d", i));
         // });
 
         // for (int s=0; s<NR_SCENARIOS; s++) {
@@ -173,12 +222,20 @@ int main() {
         });
 
         // non-negativity constraints
-        prob.addConstraints(NR_SCENARIOS, NR_STATIONS, 2, [&](int s, int i, int j) { return u[s][i][j] >= 0; });
-        prob.addConstraints(NR_SCENARIOS, NR_STATIONS, 2, [&](int s, int i, int j) { return o[s][i][j] >= 0; });
-        prob.addConstraints(NR_SCENARIOS, NR_STATIONS, NR_STATIONS, [&](int s, int i, int j) { return y[s][i][j] >= 0; });
+        // prob.addConstraints(NR_SCENARIOS, NR_STATIONS, 2, [&](int s, int i, int j) { return u[s][i][j] >= 0; });
+        // prob.addConstraints(NR_SCENARIOS, NR_STATIONS, 2, [&](int s, int i, int j) { return o[s][i][j] >= 0; });
+        // prob.addConstraints(NR_SCENARIOS, NR_STATIONS, NR_STATIONS, [&](int s, int i, int j) { return y[s][i][j] >= 0; });
+
+        // End of constraint creation
+        end = std::chrono::high_resolution_clock::now();
+        saveTimeToInfoDf(infoDf, start, end, "Constraint Creation (ms)");
+
 
         /* OBJECTIVE */
         std::cout << "CREATING OBJECTIVE" << std::endl;
+
+        // Count duration of objective creation
+        start = std::chrono::high_resolution_clock::now();
 
         LinExpression obj = LinExpression::create();
         for (int s=0; s<NR_SCENARIOS; s++) {
@@ -196,15 +253,46 @@ int main() {
 
         prob.setObjective(obj, xpress::ObjSense::Minimize);
 
+        // End of objective creation
+        end = std::chrono::high_resolution_clock::now();
+        saveTimeToInfoDf(infoDf, start, end, "Objective Creation (ms)");
+
         /* INSPECT, SOLVE & PRINT */
 
-        // write the problem in LP format for manual inspection
+        int nrVariables = prob.getCols();
+
+        int nrConstraints = prob.getRows();
+        // std::vector<char> rowTypes = prob.getRowType(0, nrConstraints-1);
+        // std::unordered_map<char, int> rowTypeCount;
+        // for (const auto& elem : rowTypes) {  ++rowTypeCount[elem]; }
+        // for (const auto& pair : rowTypeCount) { std::cout << "RowType: " << pair.first << ", Count: " << pair.second << std::endl; }
+        
+        int nrSets = prob.getSets();
+        int nrVariablesInSets = prob.getSetMembers();
+        
+        infoDf.addColumn("NrVariables", std::vector<double>{double(nrVariables)});
+        infoDf.addColumn("NrConstraints", std::vector<double>{double(nrConstraints)});
+        infoDf.addColumn("NrOfSos1Constraints", std::vector<double>{double(nrSets)});
+        infoDf.addColumn("NrVariablesInSos1Sets", std::vector<double>{double(nrVariablesInSets)});
+
+
+        // Write the problem in LP format for manual inspection
         std::cout << "Writing the problem to 'SubProb.lp'" << std::endl;
         prob.writeProb("SubProb.lp", "l");
 
         // Solve the problem
         std::cout << "Solving the problem" << std::endl;
-        prob.optimize();
+        // Count duration of Optimization
+        start = std::chrono::high_resolution_clock::now();
+
+        // Optimize
+        if (SOLVE_LP_RELAXATION) prob.lpOptimize();
+        else prob.optimize();
+
+        // End of Optimization
+        end = std::chrono::high_resolution_clock::now();
+        saveTimeToInfoDf(infoDf, start, end, "Optimization (ms)");
+
 
         // Check the solution status
         if (prob.getSolStatus() != SolStatus::Optimal && prob.getSolStatus() != SolStatus::Feasible) {
@@ -214,8 +302,9 @@ int main() {
 
         // Print the solution to console (first set precision to e.g. 5)
         std::cout << std::endl << "*** Objective Value ***" << std::endl;
-        std::cout << "Solution has objective value (profit) of " << prob.getObjVal() << std::endl;
-        std::cout << std::endl << "*** Solution ***" << std::endl;
+        std::cout << "Solution has objective value (costs) of " << prob.getObjVal() << std::endl;
+        std::cout << std::endl << "*** Solution of the " << (SOLVE_LP_RELAXATION ? "LP RELAXATION" : "ORIGINAL problem");
+        std::cout << " ***" << std::endl;
 
         // Retrieve the solution values in one go
         std::vector<double> sol = prob.getSolution();
@@ -235,6 +324,7 @@ int main() {
 
             for (int i=0; i<NR_STATIONS; i++) {
                 int j = 0;
+                // for (int j=0; j<2; j++) {
                 if (u[s][i][j].getValue(sol) > 0) {
                     std::cout << u[s][i][j].getName() << " = " << u[s][i][j].getValue(sol) << std::endl;
                 }
@@ -243,6 +333,7 @@ int main() {
 
             for (int i=0; i<NR_STATIONS; i++) {
                 int j = 0;
+                // for (int j=0; j<2; j++) {
                 if (o[s][i][j].getValue(sol) > 0) {
                     std::cout << o[s][i][j].getName() << " = " << o[s][i][j].getValue(sol) << std::endl;
                 }
