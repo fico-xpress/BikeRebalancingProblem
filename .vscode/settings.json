@@ -68,6 +68,8 @@
         "numeric": "cpp",
         "fstream": "cpp",
         "variant": "cpp",
-        "set": "cpp"
+        "set": "cpp",
+        "chrono": "cpp",
+        "forward_list": "cpp"
     }
 }

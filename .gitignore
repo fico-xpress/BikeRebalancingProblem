@@ -33,6 +33,8 @@
 
 # Data
 *.csv
+*.xlsx
+*.txt
 
 # Xpress files
 *.ilk
@@ -42,3 +44,6 @@
 # Java files
 *.java
 *.class
+
+# Old files
+/old/*
