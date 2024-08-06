@@ -100,6 +100,7 @@ private:
 
     int NR_SCENARIOS;
     int NR_1ST_STAGE_VARIABLES;
+    int NR_1ST_STAGE_CONSTRAINTS;
     int NR_2ND_STAGE_VARIABLES;
     int NR_2ND_STAGE_CONSTRAINTS;
 
@@ -117,8 +118,13 @@ TwoStage_LShapedMethod::TwoStage_LShapedMethod(XpressProblem& masterProb,
         this->iter                      = 0;
         this->NR_SCENARIOS              = p_s.size();
         this->NR_1ST_STAGE_VARIABLES    = c_i.size();
-        this->NR_2ND_STAGE_VARIABLES    = q_s_i.size();
-        this->NR_2ND_STAGE_CONSTRAINTS  = d_s_j.size();
+        this->NR_1ST_STAGE_CONSTRAINTS  = b_j.size();
+        this->NR_2ND_STAGE_VARIABLES    = q_s_i[0].size();
+        this->NR_2ND_STAGE_CONSTRAINTS  = d_s_j[0].size();
+
+        if ((q_s_i.size() != NR_SCENARIOS) || (d_s_j.size() != NR_SCENARIOS)) {
+            throw std::invalid_argument("Number of scenarios in q_s_i and d_s_j must be equal to the number of scenarios in p_s");
+        }
 }
 
 void TwoStage_LShapedMethod::runLShapedMethod() {
@@ -171,7 +177,7 @@ std::vector<Variable>& TwoStage_LShapedMethod::getFirstStageDecisionVariables() 
 
 void TwoStage_LShapedMethod::makeInitialMasterProbFormulation() {
     /* VARIABLES */
-    this->x = masterProb.addVariables(NR_1ST_STAGE_VARIABLES).withName([](int i){ return xpress::format("x_%d", i); }).toArray();
+    this->x = masterProb.addVariables(NR_1ST_STAGE_VARIABLES).withName("x_%d").toArray();
 
     /* CONSTRAINTS */
     masterProb.addConstraint(Utils::sum(x) <= b_j[0]);
@@ -225,7 +231,7 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
     // To store the right hand coefficients h for each 2nd-stage constraints j, for each scenario s
     std::vector<std::vector<double>> h_s_j(NR_SCENARIOS, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS));
     // To store the constraint coefficients T for each 1st-stage variable x_i, for each 2nd-stage constraints j, for each scenario s
-    std::vector<std::vector<std::vector<double>>> T_s_i_j(NR_SCENARIOS, std::vector<std::vector<double>>(NR_1ST_STAGE_VARIABLES, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS)));
+    std::vector<std::vector<std::vector<double>>> T_s_j_i(NR_SCENARIOS, std::vector<std::vector<double>>(NR_2ND_STAGE_CONSTRAINTS, std::vector<double>(NR_1ST_STAGE_VARIABLES)));
 
     // To store the dual values pi for each 2nd-stage constraints j, for each scenario s
     std::vector<std::vector<double>> pi_s_j(NR_SCENARIOS, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS));
@@ -233,16 +239,16 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
     for (int s=0; s<NR_SCENARIOS; s++) {
         XpressProblem subProb_s;
         /* VARIABLES */
-        std::vector<Variable> y = subProb_s.addVariables(2).withLB(0).withName([s](int i){ return xpress::format("y_s%d_%d", s, i); }).toArray();
+        std::vector<Variable> y = subProb_s.addVariables(NR_2ND_STAGE_VARIABLES).withLB(0).withName([s](int i){ return xpress::format("y_s%d_%d", s, i); }).toArray();
         /* CONSTRAINTS */
-        T_s_i_j[s] = {{-60, 0}, {0, -80}, {0, 0}, {0, 0}};  
+        T_s_j_i[s] = {{-60, 0}, {0, -80}, {0, 0}, {0, 0}};  
         h_s_j[s] = {0, 0,  d_s_j[s][0],  d_s_j[s][1]};
         NR_2ND_STAGE_CONSTRAINTS = h_s_j[s].size();
 
-        subProb_s.addConstraint(myScalarProduct(T_s_i_j[s][0], masterSol_x_t) + 6*y[0] + 10*y[1] <= h_s_j[s][0]);
-        subProb_s.addConstraint(myScalarProduct(T_s_i_j[s][1], masterSol_x_t) + 8*y[0] +  5*y[1] <= h_s_j[s][1]);
-        subProb_s.addConstraint(myScalarProduct(T_s_i_j[s][2], masterSol_x_t) + 1*y[0] +  0*y[1] <= h_s_j[s][2]);
-        subProb_s.addConstraint(myScalarProduct(T_s_i_j[s][3], masterSol_x_t) + 0*y[0] +  1*y[1] <= h_s_j[s][3]);
+        subProb_s.addConstraint(myScalarProduct(T_s_j_i[s][0], masterSol_x_t) + 6*y[0] + 10*y[1] <= h_s_j[s][0]);
+        subProb_s.addConstraint(myScalarProduct(T_s_j_i[s][1], masterSol_x_t) + 8*y[0] +  5*y[1] <= h_s_j[s][1]);
+        subProb_s.addConstraint(myScalarProduct(T_s_j_i[s][2], masterSol_x_t) + 1*y[0] +  0*y[1] <= h_s_j[s][2]);
+        subProb_s.addConstraint(myScalarProduct(T_s_j_i[s][3], masterSol_x_t) + 0*y[0] +  1*y[1] <= h_s_j[s][3]);
         /* OBJECTIVE */
         subProb_s.setObjective(Utils::scalarProduct(y, q_s_i[s]), xpress::ObjSense::Minimize);
 
@@ -260,18 +266,18 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
         std::cout << "\tScenario " << s << ": Sub Problem Solution" << std::endl;
         std::cout << "\t\tObjective value = " << subProb_s.getObjVal() << std::endl;
         std::vector<double> subSol_y_s_t = subProb_s.getSolution(y);
-        for (int i=0; i<2; i++) std::cout << "\t\t" << y[i].getName() << " = " << subSol_y_s_t[i] << std::endl;
+        for (int i=0; i<NR_2ND_STAGE_VARIABLES; i++) std::cout << "\t\t" << y[i].getName() << " = " << subSol_y_s_t[i] << std::endl;
 
         pi_s_j[s] = subProb_s.getDuals();
         std::cout << "\t\tpi_s" << s << " = ";
         std::vector<double> duals = subProb_s.getDuals();
-        for (int i=0; i<duals.size(); i++) std::cout << duals[i] << ",  ";
+        for (int j=0; j<NR_2ND_STAGE_CONSTRAINTS; j++) std::cout << pi_s_j[s][j] << ",  ";
         std::cout << std::endl << std::endl;
     }
 
     for (int s=0; s<NR_SCENARIOS; s++) {
         e_t += p_s[s] * myScalarProduct(pi_s_j[s], h_s_j[s]);
-        std::vector<double> result = myMultiplyMatrices(std::vector<std::vector<double>>{pi_s_j[s]}, T_s_i_j[s])[0];
+        std::vector<double> result = myMultiplyMatrices(std::vector<std::vector<double>>{pi_s_j[s]}, T_s_j_i[s])[0];
         // E_t = myElementWiseAddition(E_t, myElementWiseMultiplication(p_s[s], result));
         for (int i=0 ; i<NR_1ST_STAGE_VARIABLES; i++) {
             E_t[i] += p_s[s] * result[i];
@@ -280,7 +286,7 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
     std::cout << "\tGenerated Cut:" << std::endl;
     std::cout << "\t\te_" << iter << " = " << e_t << std::endl;
     std::cout << "\t\tE_" << iter << " = ";
-    for (int i=0; i<E_t.size(); i++) std::cout << E_t[i] << ",  ";
+    for (int i=0; i<NR_1ST_STAGE_VARIABLES; i++) std::cout << E_t[i] << ",  ";
     std::cout << std::endl << std::endl;
 
     double w_t = e_t - myScalarProduct(E_t, masterSol_x_t);
