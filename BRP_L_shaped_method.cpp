@@ -15,6 +15,8 @@ std::vector<double> myElementWiseMultiplication(double a, std::vector<double>& b
 }
 
 std::vector<double> myElementWiseMultiplication(std::vector<double>& a, std::vector<double>& b) {
+    if (a.size() != b.size()) throw std::invalid_argument("Vectors a and b have different lengths");
+
     std::vector<double> ans(a.size());
     for (int i=0 ; i<a.size(); i++) {
         ans[i] = a[i] * b[i];
@@ -23,6 +25,8 @@ std::vector<double> myElementWiseMultiplication(std::vector<double>& a, std::vec
 }
 
 std::vector<double> myElementWiseAddition(std::vector<double>& a, std::vector<double>& b) {
+    if (a.size() != b.size()) throw std::invalid_argument("Vectors a and b have different lengths");
+
     std::vector<double> ans(a.size());
     for (int i=0 ; i<a.size(); i++) {
         ans[i] = a[i] + b[i];
@@ -31,6 +35,8 @@ std::vector<double> myElementWiseAddition(std::vector<double>& a, std::vector<do
 }
 
 double myScalarProduct(std::vector<double>& a, std::vector<double>& b) {
+    if (a.size() != b.size()) throw std::invalid_argument("Vectors a and b have different lengths");
+
     double ans = 0.0;
     for (int i=0 ; i<a.size(); i++) {
         ans += a[i] * b[i];
@@ -44,9 +50,7 @@ std::vector<std::vector<double>> myMultiplyMatrices(std::vector<std::vector<doub
     int rowsB = B.size();
     int colsB = B[0].size();
 
-    if (colsA != rowsB) {
-        throw std::invalid_argument("Number of columns in A must be equal to the number of rows in B.");
-    }
+    if (colsA != rowsB) throw std::invalid_argument("Number of columns in A must be equal to the number of rows in B.");
 
     std::vector<std::vector<double>> result(rowsA, std::vector<double>(colsB, 0));
 
@@ -113,6 +117,8 @@ private:
     // To store the master problem's solution values of the variables x and theta
     std::vector<double> masterSol_x_t; //xSolValues;
     double masterSol_theta_t; //thetaSolValue;
+
+    std::vector<std::vector<double>> netDemand_s_i;
 };
 
 // Constructor Method
@@ -120,17 +126,34 @@ TwoStage_LShapedMethod::TwoStage_LShapedMethod(XpressProblem& masterProb,
         std::vector<double>& c_i, std::vector<double>& b_i, std::vector<double>& p_s,
         std::vector<std::vector<double>>& c_ij, std::vector<std::vector<double>>& q_ij_1,
         std::vector<std::vector<double>>& q_ij_2, std::vector<std::vector<std::vector<double>>>& d_s_ij) 
-     : masterProb(masterProb), c_i(c_i), b_i(b_i), p_s(p_s), c_ij(c_ij), 
-                               q_ij_1(q_ij_1), q_ij_2(q_ij_2), d_s_ij(d_s_ij)
+     : masterProb(masterProb), c_i(c_i), b_i(b_i), p_s(p_s),
+       c_ij(c_ij), q_ij_1(q_ij_1), q_ij_2(q_ij_2), d_s_ij(d_s_ij)
     {
-        this->iter                      = 0;
-        this->NR_SCENARIOS              = p_s.size();
-        this->NR_1ST_STAGE_VARIABLES    = c_i.size();
-        this->NR_1ST_STAGE_CONSTRAINTS  = b_i.size();
-        NR_STATIONS = NR_1ST_STAGE_VARIABLES;
+    this->iter                      = 0;
+    this->NR_SCENARIOS              = p_s.size();
+    this->NR_1ST_STAGE_VARIABLES    = c_i.size();
+    this->NR_1ST_STAGE_CONSTRAINTS  = b_i.size();
+    NR_STATIONS = NR_1ST_STAGE_VARIABLES;
 
-        this->NR_2ND_STAGE_VARIABLES    = 3 * NR_STATIONS * NR_STATIONS;
-        this->NR_2ND_STAGE_CONSTRAINTS  = 3 * NR_STATIONS;
+    this->NR_2ND_STAGE_VARIABLES    = 2 * NR_STATIONS * NR_STATIONS;
+    this->NR_2ND_STAGE_CONSTRAINTS  = 3 * NR_STATIONS;
+
+    this->netDemand_s_i = std::vector<std::vector<double>>(NR_SCENARIOS, std::vector<double>(NR_STATIONS, 0));
+    for (int s=0; s<NR_SCENARIOS; s++) {
+        for (int i=0; i<NR_STATIONS; i++) {
+            for (int j=0; j<NR_STATIONS; j++) {
+                netDemand_s_i[s][i] += d_s_ij[s][i][j];
+                netDemand_s_i[s][j] -= d_s_ij[s][i][j];
+            }
+        }
+    }
+    for (int s=0; s<NR_SCENARIOS; s++) {
+        std::cout << "SCENARIO " << s << std::endl;
+        for (int i=0; i<NR_STATIONS; i++) {
+            std::cout << "d[" << i << "] = " << netDemand_s_i[s][i] << std::endl;
+        }
+        std::cout << std::endl;
+    }
 }
 
 void TwoStage_LShapedMethod::runLShapedMethod() {
@@ -239,7 +262,8 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
     // To store the right hand coefficients h for each 2nd-stage constraint j, for each scenario s
     std::vector<std::vector<double>> h_s_j(NR_SCENARIOS, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS));
     // To store the constraint coefficients T for each 1st-stage variable x_i, for each 2nd-stage constraints j, for each scenario s
-    std::vector<std::vector<std::vector<double>>> T_s_i_j(NR_SCENARIOS, std::vector<std::vector<double>>(NR_1ST_STAGE_VARIABLES, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS, 0.0)));
+    // std::vector<std::vector<std::vector<double>>> T_s_i_j(NR_SCENARIOS, std::vector<std::vector<double>>(NR_1ST_STAGE_VARIABLES, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS, 0.0)));
+    std::vector<std::vector<std::vector<double>>> T_s_j_i(NR_SCENARIOS, std::vector<std::vector<double>>(NR_2ND_STAGE_CONSTRAINTS, std::vector<double>(NR_1ST_STAGE_VARIABLES, 0.0)));
 
     // To store the dual values pi for each 2nd-stage constraints j, for each scenario s
     std::vector<std::vector<double>> pi_s_j(NR_SCENARIOS, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS));
@@ -257,56 +281,102 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
             .withName([s](int i, int j){ return xpress::format("s%d_u(%d,%d)", s, i, j); })
             .toArray();
 
-        std::vector<std::vector<Variable>> o = subProb_s.addVariables(NR_STATIONS, NR_STATIONS)
-            .withType(ColumnType::Continuous)
-            .withName([s](int i, int j){ return xpress::format("s%d_o(%d,%d)", s, i, j); })
-            .toArray();
-        
-        /* CONSTRAINTS */
-        // For the objective
-        std::vector<double> u_i(NR_STATIONS), o_i(NR_STATIONS);
-        // For the 2nd-stage constraints
-        // std::vector<double> h_j(NR_2ND_STAGE_CONSTRAINTS), T_i_i(NR_2ND_STAGE_CONSTRAINTS);
-        for (int i=0; i<NR_STATIONS; i++) {
-            u_i[i] = std::max(0.0, d_s_i[s][i] - masterSol_x_t[i]);
-            o_i[i] = std::max(0.0, -d_s_i[s][i] - (b_i[i] - masterSol_x_t[i]));
+        // std::vector<std::vector<Variable>> o = subProb_s.addVariables(NR_STATIONS, NR_STATIONS)
+        //     .withType(ColumnType::Continuous)
+        //     .withName([s](int i, int j){ return xpress::format("s%d_o(%d,%d)", s, i, j); })
+        //     .toArray();
 
-            if ( -(b_i[i]-masterSol_x_t[i]) >= d_s_i[s][i] ) {
-                h_s_j[s][i]      = b_i[i];
-                T_s_i_j[s][i][i] = 1.0;
+        /* CONSTRAINTS */
+
+        for (int i=0; i<NR_STATIONS; i++) {
+
+            if ( -(b_i[i]-masterSol_x_t[i]) >= netDemand_s_i[s][i] ) {
+                // Station Overflow
+                std::cout << "For station " << i << ": 1st if-statement\n";
+                h_s_j[s][0*NR_STATIONS+i]      = b_i[i];
+                h_s_j[s][1*NR_STATIONS+i]      = - b_i[i] - netDemand_s_i[s][i];
+                h_s_j[s][2*NR_STATIONS+i]      = 0.0;
+
+                T_s_j_i[s][0*NR_STATIONS+i][i] = 1.0;
+                T_s_j_i[s][1*NR_STATIONS+i][i] = - 1.0;
+                T_s_j_i[s][2*NR_STATIONS+i][i] = 0.0;
             }
-            else if ( d_s_i[s][i] >= masterSol_x_t[i] ) {
-                h_s_j[s][i]      = 0.0;
-                T_s_i_j[s][i][i] = 1.0;
+            else if ( netDemand_s_i[s][i] >= masterSol_x_t[i] ) {
+                // Station Underflow / unmet demand
+                std::cout << "For station " << i << ": 2nd if-statement\n";
+                h_s_j[s][0*NR_STATIONS+i]      = 0.0;
+                h_s_j[s][1*NR_STATIONS+i]      = 0.0;
+                h_s_j[s][2*NR_STATIONS+i]      = netDemand_s_i[s][i];
+
+                T_s_j_i[s][0*NR_STATIONS+i][i] = 1.0;
+                T_s_j_i[s][1*NR_STATIONS+i][i] = 0.0;
+                T_s_j_i[s][2*NR_STATIONS+i][i] = 1.0;
             }
             else {
-                h_s_j[s][i]      = -d_s_i[s][i];
-                T_s_i_j[s][i][i] = 0.0;
+                std::cout << "For station " << i << ": 3rd if-statement\n";
+                h_s_j[s][0*NR_STATIONS+i]      = - netDemand_s_i[s][i];
+                h_s_j[s][1*NR_STATIONS+i]      = 0.0;
+                h_s_j[s][2*NR_STATIONS+i]      = 0.0;
+
+                T_s_j_i[s][0*NR_STATIONS+i][i] = 0.0;
+                T_s_j_i[s][1*NR_STATIONS+i][i] = 0.0;
+                T_s_j_i[s][2*NR_STATIONS+i][i] = 0.0;
             }
         }
 
-        for (int i=0; i<NR_STATIONS; i++) std::cout << "\t\tu_" << i << " = " << u_i[i] << std::endl;
-        std::cout << std::endl;
-
-        for (int i=0; i<NR_STATIONS; i++) std::cout << "\t\to_" << i << " = " << o_i[i] << std::endl;
-        std::cout << std::endl;
-
-        
         std::vector<LinExpression> end_of_day_net_recourse_flows(NR_STATIONS);
+        std::vector<Expression> during_day_net_customer_flows(NR_STATIONS);
+        std::vector<LinExpression> nr_disabled_incoming_trips(NR_STATIONS);
+        std::vector<LinExpression> nr_disabled_outgoing_trips(NR_STATIONS);
 
         for (int i=0; i<NR_STATIONS; i++) {
             LinExpression net_recourse_flow = LinExpression::create();
+            LinExpression outgoing_trips = LinExpression::create();
+            LinExpression incoming_trips = LinExpression::create();
             for (int j=0; j<NR_STATIONS; j++) {
                 net_recourse_flow.addTerm(y[i][j], 1).addTerm(y[j][i], -1);
+                outgoing_trips.addTerm(u[i][j], 1);
+                incoming_trips.addTerm(u[j][i], 1);
             }
             end_of_day_net_recourse_flows[i] = net_recourse_flow;
+            nr_disabled_outgoing_trips[i] = outgoing_trips;
+            nr_disabled_incoming_trips[i] = incoming_trips;
+            during_day_net_customer_flows[i] = -(netDemand_s_i[s][i] - 
+                nr_disabled_outgoing_trips[i] + nr_disabled_incoming_trips[i]
+            );
         }
 
-        // NR_2ND_STAGE_CONSTRAINTS = h_s_j[s].size();
-        
         subProb_s.addConstraints(NR_STATIONS, [&](int i) {
-            return (end_of_day_net_recourse_flows[i] == h_s_j[s][i] - myScalarProduct(T_s_i_j[s][i], masterSol_x_t))
+            return (end_of_day_net_recourse_flows[i] == during_day_net_customer_flows[i])
                     .setName(xpress::format("FlowCons_S%d", i));
+        });
+        // double firstStageEffect = scalarProduct(T_s_i_j[s][i][NR_STATIONS:NR_STATIONS*2], masterSol_x_t)
+        subProb_s.addConstraints(NR_STATIONS, [&](int j) {
+            double firstStageEffect = 0.0;
+            for (int i=0; i<NR_1ST_STAGE_VARIABLES; i++) {
+                firstStageEffect += T_s_j_i[s][NR_STATIONS+j][i] * masterSol_x_t[i];
+            }
+            std::cout << "station " << j << ": firstStageEffect = " << firstStageEffect << std::endl;
+            std::cout << "station " << j << ": h = " << h_s_j[s][1*NR_STATIONS+j] << std::endl;
+            // std::vector<double> sliced(T_s_i_j[s][i].begin() + NR_STATIONS, T_s_i_j[s][i].begin() + NR_STATIONS*2);
+            return (nr_disabled_incoming_trips[j] <= h_s_j[s][1*NR_STATIONS+j] - firstStageEffect)//myScalarProduct(sliced, masterSol_x_t))
+                    .setName(xpress::format("nr_disabled_incoming_trips%d", j));
+        });
+        subProb_s.addConstraints(NR_STATIONS, [&](int j) {
+            double firstStageEffect = 0.0;
+            for (int i=0; i<NR_1ST_STAGE_VARIABLES; i++) {
+                firstStageEffect += T_s_j_i[s][2*NR_STATIONS+j][i] * masterSol_x_t[i];
+            }
+            return (nr_disabled_outgoing_trips[j] <= h_s_j[s][2*NR_STATIONS+j] - firstStageEffect)
+                    .setName(xpress::format("nr_disabled_outgoing_trips%d", j));
+        });
+        subProb_s.addConstraints(NR_STATIONS, [&](int i) {
+            return (masterSol_x_t[i] + during_day_net_customer_flows[i] <= b_i[i]);
+                    // .setName(xpress::format("FlowCons_S%d", i));
+        });
+        subProb_s.addConstraints(NR_STATIONS, [&](int i) {
+            return (masterSol_x_t[i] + during_day_net_customer_flows[i] >= 0.0);
+                    // .setName(xpress::format("FlowCons_S%d", i));
         });
 
         /* OBJECTIVE */
@@ -314,9 +384,10 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
         for (int i=0; i<NR_STATIONS; i++) {
             for (int j=0; j<NR_STATIONS; j++) {
                 objective.addTerm(c_ij[i][j], y[i][j]);
+                objective.addTerm(q_ij_1[i][j], u[i][j]);
             }
         }
-        objective.addConstant(myScalarProduct(u_i, q_i_1) + myScalarProduct(o_i, q_i_2));
+        // objective.addConstant(myScalarProduct(u_i, q_i_1) + myScalarProduct(o_i, q_i_2));
         subProb_s.setObjective(objective, xpress::ObjSense::Minimize);
 
         /* INSPECT, SOLVE & PRINT */
@@ -332,15 +403,26 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
         // Retrieve the solution values
         std::cout << "\tScenario " << s << ": Sub Problem Solution" << std::endl;
         std::cout << "\t\tObjective value = " << subProb_s.getObjVal() << std::endl;
-        // std::vector<double> ySolutionValues = subProb_s.getSolution(y);
+        std::vector<double> solutionValues = subProb_s.getSolution();
         // TODO: improve getSolution() double for loop
+        // for (int i=0; i<NR_STATIONS; i++) {
+        //     for (int j=0; j<NR_STATIONS; j++) {
+        //         std::cout << "\t\t" << y[i][j].getName() << " = " << y[i][j].getSolution() << std::endl;
+        //     }
+        // }
+
         for (int i=0; i<NR_STATIONS; i++) {
-            for (int j=0; j<NR_STATIONS; j++) {
-                std::cout << "\t\t" << y[i][j].getName() << " = " << y[i][j].getSolution() << std::endl;
-            }
+            std::cout << "\t\tStation " << i << std::endl;
+            std::cout << "\t\t\tend-of-day-flow = " << -end_of_day_net_recourse_flows[i].evaluate(solutionValues) << std::endl;
+            std::cout << "\t\t\tunmet-outgoing-trips = " << nr_disabled_outgoing_trips[i].evaluate(solutionValues) << std::endl;
+            std::cout << "\t\t\tunmet-incoming-trips = " << nr_disabled_incoming_trips[i].evaluate(solutionValues) << std::endl;
+            std::cout << "\t\t\tduring-day-flow = " << during_day_net_customer_flows[i].evaluate(solutionValues) << std::endl;
         }
 
         pi_s_j[s] = subProb_s.getDuals();
+        // if (pi_s_j[s].size() != NR_2ND_STAGE_CONSTRAINTS) throw std::invalid_argument("Disable presolve please, thanks");
+
+
         std::cout << "\t\tpi_s" << s << " = ";
         std::vector<double> duals = subProb_s.getDuals();
         for (int i=0; i<duals.size(); i++) std::cout << duals[i] << ",  ";
@@ -349,7 +431,7 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
 
     for (int s=0; s<NR_SCENARIOS; s++) {
         e_t += p_s[s] * myScalarProduct(pi_s_j[s], h_s_j[s]);
-        std::vector<double> result = myMultiplyMatrices(std::vector<std::vector<double>>{pi_s_j[s]}, T_s_i_j[s])[0];
+        std::vector<double> result = myMultiplyMatrices(std::vector<std::vector<double>>{pi_s_j[s]}, T_s_j_i[s])[0];
         // E_t = myElementWiseAddition(E_t, myElementWiseMultiplication(p_s[s], result));
         for (int i=0 ; i<NR_1ST_STAGE_VARIABLES; i++) {
             E_t[i] += p_s[s] * result[i];
@@ -385,8 +467,8 @@ int main() {
         // Right hand coefficients h for each 2nd-stage constraint j, for each scenario s
         // Note: the nr of 2nd-stage constraints == nr first-stage variables, so use index i instead of j
         // std::vector<std::vector<double>> d_s_i = {{ 4,  -5,  9,  -8 }, { 6,  -4,  10,  -7 }};
-        std::vector<std::vector<std::vector<double>>> d_s_ij = {{{ 0,  -3,  -2 }, { 6,  0,  10 }, { 3,  2, 0}},
-                                                                {{ 0,   5,  -6 }, { -2, 0,   8 }, { 7, -2, 0}}};
+        std::vector<std::vector<std::vector<double>>> d_s_ij = {{{ 0,   3,   2 }, { 6,  0,  10 }, { 3,  2, 0}},
+                                                                {{ 0,   5,   6 }, { 2,  0,   2 }, { 7,  2, 0}}};
 
         // Objective coefficients for each second-stage decision variable y_ij
         std::vector<std::vector<double>> c_ij(NR_STATIONS, std::vector<double>(NR_STATIONS, 10));
