@@ -1,13 +1,28 @@
 #include <xpress.hpp>
 #include <stdexcept> // For throwing exceptions
+#include <omp.h>     // For parallelising for-loops in matrix multiplication
+
 
 using namespace xpress;
 using namespace xpress::objects;
 
+std::vector<double> myElementWiseMultiplication(double a, std::vector<double>& b) {
+    std::vector<double> ans(b.size());
+    for (int i=0 ; i<b.size(); i++) {
+        ans[i] = a * b[i];
+    }
+    return ans;
+}
 
+std::vector<double> myElementWiseMultiplication(std::vector<double>& a, std::vector<double>& b) {
+    std::vector<double> ans(a.size());
+    for (int i=0 ; i<a.size(); i++) {
+        ans[i] = a[i] * b[i];
+    }
+    return ans;
+}
 
-
-std::vector<double> myElementWiseAddition(std::vector<double> a, std::vector<double> b) {
+std::vector<double> myElementWiseAddition(std::vector<double>& a, std::vector<double>& b) {
     std::vector<double> ans(a.size());
     for (int i=0 ; i<a.size(); i++) {
         ans[i] = a[i] + b[i];
@@ -15,7 +30,7 @@ std::vector<double> myElementWiseAddition(std::vector<double> a, std::vector<dou
     return ans;
 }
 
-double myScalarProduct(std::vector<double> a, std::vector<double> b) {
+double myScalarProduct(std::vector<double>& a, std::vector<double>& b) {
     double ans = 0.0;
     for (int i=0 ; i<a.size(); i++) {
         ans += a[i] * b[i];
@@ -35,6 +50,7 @@ std::vector<std::vector<double>> myMultiplyMatrices(std::vector<std::vector<doub
 
     std::vector<std::vector<double>> result(rowsA, std::vector<double>(colsB, 0));
 
+    #pragma omp parallel for
     for (int i = 0; i < rowsA; ++i) {
         for (int j = 0; j < colsB; ++j) {
             for (int k = 0; k < colsA; ++k) {
@@ -200,14 +216,13 @@ void TwoStage_LShapedMethod::addOptimalityCutToMasterProb(std::vector<double>& E
     std::cout << "\tAdding constraint: " << (Utils::scalarProduct(x, E_t) + theta).toString() << " >= " << e_t << std::endl << std::endl;
 }
 
-
 bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, double& e_t) {
 
     // ################## Solving Sub Problems ######################
 
-    std::vector<std::vector<double>> h_k_constr(NR_SCENARIOS, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS));
-    std::vector<std::vector<std::vector<double>>> T_k_x_constr(NR_SCENARIOS, std::vector<std::vector<double>>(NR_1ST_STAGE_VARIABLES, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS)));
-    std::vector<std::vector<double>> pi_k_constr(NR_SCENARIOS, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS));
+    std::vector<std::vector<double>> h_s_constr(NR_SCENARIOS, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS));
+    std::vector<std::vector<std::vector<double>>> T_s_x_constr(NR_SCENARIOS, std::vector<std::vector<double>>(NR_1ST_STAGE_VARIABLES, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS)));
+    std::vector<std::vector<double>> pi_s_constr(NR_SCENARIOS, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS));
 
 
     for (int s=0; s<NR_SCENARIOS; s++) {
@@ -215,13 +230,14 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
         /* VARIABLES */
         std::vector<Variable> y = subProb_s.addVariables(2).withLB(0).withName([s](int i){ return xpress::format("y_s%d_%d", s, i); }).toArray();
         /* CONSTRAINTS */
-        T_k_x_constr[s] = {{-60, 0}, {0, -80}, {0, 0}, {0, 0}};
-        h_k_constr[s] = {0, 0,  d_s_i[s][0],  d_s_i[s][1]};
+        T_s_x_constr[s] = {{-60, 0}, {0, -80}, {0, 0}, {0, 0}};
+        h_s_constr[s] = {0, 0,  d_s_i[s][0],  d_s_i[s][1]};
+        NR_2ND_STAGE_CONSTRAINTS = h_s_constr[s].size();
 
-        subProb_s.addConstraint(myScalarProduct(T_k_x_constr[s][0], masterSol_x_t) + 6*y[0] + 10*y[1] <= h_k_constr[s][0]);
-        subProb_s.addConstraint(myScalarProduct(T_k_x_constr[s][1], masterSol_x_t) + 8*y[0] +  5*y[1] <= h_k_constr[s][1]);
-        subProb_s.addConstraint(myScalarProduct(T_k_x_constr[s][2], masterSol_x_t) + 1*y[0] +  0*y[1] <= h_k_constr[s][2]);
-        subProb_s.addConstraint(myScalarProduct(T_k_x_constr[s][3], masterSol_x_t) + 0*y[0] +  1*y[1] <= h_k_constr[s][3]);
+        subProb_s.addConstraint(myScalarProduct(T_s_x_constr[s][0], masterSol_x_t) + 6*y[0] + 10*y[1] <= h_s_constr[s][0]);
+        subProb_s.addConstraint(myScalarProduct(T_s_x_constr[s][1], masterSol_x_t) + 8*y[0] +  5*y[1] <= h_s_constr[s][1]);
+        subProb_s.addConstraint(myScalarProduct(T_s_x_constr[s][2], masterSol_x_t) + 1*y[0] +  0*y[1] <= h_s_constr[s][2]);
+        subProb_s.addConstraint(myScalarProduct(T_s_x_constr[s][3], masterSol_x_t) + 0*y[0] +  1*y[1] <= h_s_constr[s][3]);
         /* OBJECTIVE */
         subProb_s.setObjective(Utils::scalarProduct(y, q_s_i[s]), xpress::ObjSense::Minimize);
 
@@ -241,7 +257,7 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
         std::vector<double> subSol_y_s_t = subProb_s.getSolution(y);
         for (int i=0; i<2; i++) std::cout << "\t\t" << y[i].getName() << " = " << subSol_y_s_t[i] << std::endl;
 
-        pi_k_constr[s] = subProb_s.getDuals();
+        pi_s_constr[s] = subProb_s.getDuals();
         std::cout << "\t\tpi_s" << s << " = ";
         std::vector<double> duals = subProb_s.getDuals();
         for (int i=0; i<duals.size(); i++) std::cout << duals[i] << ",  ";
@@ -249,8 +265,9 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
     }
 
     for (int s=0; s<NR_SCENARIOS; s++) {
-        e_t += p_s[s] * myScalarProduct(pi_k_constr[s], h_k_constr[s]);
-        std::vector<double> result = myMultiplyMatrices(std::vector<std::vector<double>>{pi_k_constr[s]}, T_k_x_constr[s])[0];
+        e_t += p_s[s] * myScalarProduct(pi_s_constr[s], h_s_constr[s]);
+        std::vector<double> result = myMultiplyMatrices(std::vector<std::vector<double>>{pi_s_constr[s]}, T_s_x_constr[s])[0];
+        // E_t = myElementWiseAddition(E_t, myElementWiseMultiplication(p_s[s], result));
         for (int i=0 ; i<NR_1ST_STAGE_VARIABLES; i++) {
             E_t[i] += p_s[s] * result[i];
         }
