@@ -271,8 +271,6 @@ void TwoStage_LShapedMethod::solveMasterProb(bool solveRelaxation) {
 void TwoStage_LShapedMethod::addOptimalityCutToMasterProb(std::vector<double>& E_t, double& e_t) {
     masterProb.addConstraint(Utils::scalarProduct(x, E_t) + theta >= e_t);
 
-
-
     // masterProb.addCut(0, Utils::scalarProduct(x, E_t) + theta >= e_t);
     std::cout << "\tAdding constraint" << std::endl;
     if (verbose) {
@@ -283,19 +281,18 @@ void TwoStage_LShapedMethod::addOptimalityCutToMasterProb(std::vector<double>& E
 bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, double& e_t) {
 
     // ################## Solving Sub Problems ######################
-    
+
     // To store the right hand coefficients h for each 2nd-stage constraint j, for each scenario s
     std::vector<std::vector<double>> h_s_j(NR_SCENARIOS, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS));
     // To store the constraint coefficients T for each 1st-stage variable x_i, for each 2nd-stage constraints j, for each scenario s
     std::vector<std::vector<std::vector<double>>> T_s_j_i(NR_SCENARIOS, std::vector<std::vector<double>>(NR_2ND_STAGE_CONSTRAINTS, std::vector<double>(NR_1ST_STAGE_VARIABLES, 0.0)));
-
 
     // To store the dual values pi for each 2nd-stage constraints j, for each scenario s
     std::vector<std::vector<double>> pi_s_j(NR_SCENARIOS, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS));
 
     for (int s=0; s<NR_SCENARIOS; s++) {
         XpressProblem subProb_s;
-        subProb_s.callbacks->addMessageCallback(XpressProblem::CallbackAPI::console);
+        // subProb_s.callbacks->addMessageCallback(XpressProblem::CallbackAPI::console);
 
         /* VARIABLES */
         std::vector<std::vector<Variable>> y = subProb_s.addVariables(NR_STATIONS, NR_STATIONS)
@@ -357,6 +354,8 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
                     // .setName(xpress::format("overflow_%d", j));
         });
 
+        // std::cout << "\tBuilt sub problem constraints" << std::endl;
+
         /* OBJECTIVE */
         LinExpression objective = LinExpression::create();
         for (int i=0; i<NR_STATIONS; i++) {
@@ -381,7 +380,9 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
         }
 
         // Retrieve the solution values
-        std::cout << "\tScenario " << s << ": Sub Problem Solved" << std::endl;
+        if (NR_SCENARIOS <= 5)
+            std::cout << "\tScenario " << s << ": Sub Problem Solved" << std::endl;
+
         if (verbose) {
             std::cout << "\t\tObjective value = " << subProb_s.getObjVal() << std::endl;
             std::vector<double> solutionValues = subProb_s.getSolution();
@@ -412,10 +413,7 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
         }
 
         pi_s_j[s] = subProb_s.getDuals();
-        std::cout << pi_s_j[s].size() << std::endl;
-        std::cout << NR_2ND_STAGE_CONSTRAINTS << std::endl;
-        // if (pi_s_j[s].size() != NR_2ND_STAGE_CONSTRAINTS) throw std::invalid_argument("Disable presolve please, thanks");
-        // if (pi_s_j[s].size() != NR_2ND_STAGE_CONSTRAINTS) throw std::invalid_argument("Disable presolve please, thanks");
+        if (pi_s_j[s].size() != NR_2ND_STAGE_CONSTRAINTS) throw std::invalid_argument("Disable presolve please, thanks");
 
         if (verbose) {
             std::cout << "\t\tpi_s" << s << " = ";
@@ -460,8 +458,6 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
 //          - dont use `addConstraint()` in the callback  (this resets solver state)
 //          - instead, use `addCut()` in the callback (because why not, decrease search space whenever you can), 
 //            and also add to constraint pool for `addConstraints()` later
-
-// TODO: Python?
 // TODO: Solve subproblems in an array for next iteration and modify in the next iteration
 //          - YES (one problem per scenario, same |S| problems for each iteration)
 // TODO: Warm start for subproblems
@@ -472,65 +468,58 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
 //          - loadmipsol () used in heuristics for the MIP
 // TODO: Parrallellize subproblem solving
 //          - first thing to do lol
+// TODO: Python?
 // TODO: multi-cut?
 
 
 int main() {
     try {
-
-        std::string tripDataFilename = "./data/394_Net_Data_size50.csv";
+        // Station information data:
         std::string stationDataFilename = "./data/Station_Info_size50.csv";
-        DataFrame tripData    = DataFrame::readCSV(tripDataFilename);
         DataFrame stationData = DataFrame::readCSV(stationDataFilename);
-
-        tripData.convertColumnToDouble("CLASSIC_net");
         stationData.convertColumnToDouble("nbDocks");
-
         std::vector<double> b_i2 = stationData.getColumn<double>("nbDocks");
 
+        // Trip information data:
+        std::string tripDataFilename = "./data/394_Net_Data_size50.csv";
+        DataFrame tripData    = DataFrame::readCSV(tripDataFilename);
+        tripData.convertColumnToDouble("CLASSIC_net");
         std::map<std::string, DataFrame> scenarios = tripData.groupBy<std::string>("date");
         std::vector<std::vector<double>> d_s_i2 = convertScenariosToMatrix(scenarios);
 
         std::vector<std::vector<double>> d_s_i = d_s_i2;
         std::vector<double> b_i = b_i2;
-        int NR_BIKES = mySum(b_i) / 3;
-        int NR_STATIONS = b_i.size();
-
-        for (int s=0; s<d_s_i.size(); s++) {
-            if (mySum(d_s_i[s]) > 0.0) throw std::invalid_argument("Net demand in each scenario must be zero");
-        }
-        // return 0;
 
 
         /******************  Data Initialization ******************************/
-        // int NR_STATIONS = 3;
-        // int NR_BIKES = 20;
         // Right-hand coefficients b for each 1st-stage constraint j
         // Note: the nr of 1st-stage constraints == nr first-stage variables, so use index i instead of j
-        // std::vector<double> b_i = b_i2; //{ 10, 15,  20 };
+        // std::vector<double> b_i = { 10, 15,  20 };
         // Right hand coefficients h for each 2nd-stage constraint j, for each scenario s
         // Note: the nr of 2nd-stage constraints == nr first-stage variables, so use index i instead of j
         // std::vector<std::vector<double>> d_s_i = {{ 4,  5,  -9}, { -4,  10, -6 }};
         // std::vector<std::vector<double>> d_s_i = {d_s_i2[0]}; // {{ 4,  5,  -9}, {  9,  -3, -6 }};
 
+        int NR_STATIONS = b_i.size();
+        int NR_SCENARIOS = d_s_i.size();
+        int NR_BIKES = mySum(b_i) / 3;
+
         // Objective coefficients c for each first-stage decision variable x_i
         std::vector<double> c_i(NR_STATIONS, 10);
         // Objective coefficients for each second-stage decision variable y_ij
         std::vector<std::vector<double>> c_ij(NR_STATIONS, std::vector<double>(NR_STATIONS, 10));
-        // Objective coefficients for each second-stage constant o_ij
+        // Objective coefficients for each second-stage variable o_i
         std::vector<double> q_i_1(NR_STATIONS, 10);
-        // Objective coefficients for each second-stage constant u_ij
+        // Objective coefficients for each second-stage variable u_i
         std::vector<double> q_i_2(NR_STATIONS, 10);
-
         // Probability of each scenario s
-        int NR_SCENARIOS = d_s_i.size();
         std::vector<double> p_s(NR_SCENARIOS, 1/double(NR_SCENARIOS));
 
 
         /******************  Problem Creation ******************************/
         // Create a problem instance
         XpressProblem masterProb;
-        masterProb.callbacks->addMessageCallback(XpressProblem::CallbackAPI::console);
+        // masterProb.callbacks->addMessageCallback(XpressProblem::CallbackAPI::console);
 
         // Initialize Two-Stage Stochastic Problem solver
         TwoStage_LShapedMethod tssp_solver = 
