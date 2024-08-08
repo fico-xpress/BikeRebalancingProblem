@@ -232,7 +232,7 @@ void TwoStage_LShapedMethod::makeInitialMasterProbFormulation(int NR_BIKES) {
 
 void TwoStage_LShapedMethod::solveMasterProb(bool solveRelaxation) {
     /* INSPECT */
-    // masterProb.writeProb("MasterProb.lp", "l");
+    // masterProb.writeProb(xpress::format("MasterProb_%d.lp", iter), "l");
 
     /* SOLVE */
     if (solveRelaxation) {
@@ -273,7 +273,7 @@ void TwoStage_LShapedMethod::addOptimalityCutToMasterProb(std::vector<double>& E
 
 
 
-    masterProb.addCut(0, Utils::scalarProduct(x, E_t) + theta >= e_t);
+    // masterProb.addCut(0, Utils::scalarProduct(x, E_t) + theta >= e_t);
     std::cout << "\tAdding constraint" << std::endl;
     if (verbose) {
         std::cout << "\t\t" << (Utils::scalarProduct(x, E_t) + theta).toString() << " >= " << e_t << std::endl << std::endl;
@@ -478,8 +478,8 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
 int main() {
     try {
 
-        std::string tripDataFilename = "./394_Net_Data.csv";
-        std::string stationDataFilename = "./Station_Info.csv";
+        std::string tripDataFilename = "./data/394_Net_Data_size50.csv";
+        std::string stationDataFilename = "./data/Station_Info_size50.csv";
         DataFrame tripData    = DataFrame::readCSV(tripDataFilename);
         DataFrame stationData = DataFrame::readCSV(stationDataFilename);
 
