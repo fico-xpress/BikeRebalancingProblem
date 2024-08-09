@@ -147,6 +147,7 @@ TwoStage_LShapedMethod::TwoStage_LShapedMethod(XpressProblem& masterProb,
     this->NR_2ND_STAGE_VARIABLES    = 2 * NR_STATIONS * NR_STATIONS;
     this->NR_2ND_STAGE_CONSTRAINTS  = 3 * NR_STATIONS;
 
+    // Calculate net demands
     this->netDemand_s_i = std::vector<std::vector<double>>(NR_SCENARIOS, std::vector<double>(NR_STATIONS, 0));
     for (int s=0; s<NR_SCENARIOS; s++) {
         for (int i=0; i<NR_STATIONS; i++) {
@@ -353,19 +354,15 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
                     // .setName(xpress::format("FlowCons_S%d", j));
         });
         subProb_s.addConstraints(NR_STATIONS, [&](int j) {
-            double firstStageEffect = 0.0;
-            for (int i=0; i<NR_1ST_STAGE_VARIABLES; i++)
-                firstStageEffect += T_s_j_i[s][1*NR_STATIONS+j][i] * masterSol_x_t[i];
             // return (masterSol_x_t[i] + during_day_net_customer_flows[i] <= b_i[i]);
-            return (nr_disabled_outgoing_trips[j] - nr_disabled_incoming_trips[j] <= h_s_j[s][1*NR_STATIONS+j] - firstStageEffect);
+            return (nr_disabled_outgoing_trips[j] - nr_disabled_incoming_trips[j] <= 
+                    h_s_j[s][1*NR_STATIONS+j] - myScalarProduct(T_s_j_i[s][1*NR_STATIONS+j], masterSol_x_t));
                     // .setName(xpress::format("lt_bi_S%d", j));
         });
         subProb_s.addConstraints(NR_STATIONS, [&](int j) {
-            double firstStageEffect = 0.0;
-            for (int i=0; i<NR_1ST_STAGE_VARIABLES; i++)
-                firstStageEffect += T_s_j_i[s][2*NR_STATIONS+j][i] * masterSol_x_t[i];
             // return (masterSol_x_t[i] + during_day_net_customer_flows[i] >= 0.0);
-            return (nr_disabled_outgoing_trips[j] - nr_disabled_incoming_trips[j] >= h_s_j[s][2*NR_STATIONS+j] - firstStageEffect);
+            return (nr_disabled_outgoing_trips[j] - nr_disabled_incoming_trips[j] >= 
+                    h_s_j[s][2*NR_STATIONS+j] - myScalarProduct(T_s_j_i[s][2*NR_STATIONS+j], masterSol_x_t));
                     // .setName(xpress::format("gt_zero_S%d", j));
         });
 

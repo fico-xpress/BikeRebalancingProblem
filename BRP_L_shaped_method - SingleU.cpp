@@ -84,8 +84,27 @@ std::vector<std::vector<double>> myMultiplyMatrices(std::vector<std::vector<doub
     return result;
 }
 
+// Forward declaration of TwoStage_LShapedMethod class such that the BRP_SubProblem knows it exists
+// class TwoStage_LShapedMethod;
+
+
+// class BRP_SubProblem {
+// public:
+//     XpressProblem& subProb;
+//     TwoStage_LShapedMethod* masterProbSolver;
+//     int subProbIndex;
+
+//     // BRP_SubProblem(TwoStage_LShapedMethod* masterProbSolver, int subProbIndex);
+//     BRP_SubProblem(TwoStage_LShapedMethod* masterProbSolver, XpressProblem& subProb, int subProbIndex);
+//     void makeInitialSubProbFormulation(int s);
+// };
+
+
 
 class TwoStage_LShapedMethod {
+     // Such that the BRP_SubProblem class can access TwoStage_LShapedMethod's private members
+    // friend class BRP_SubProblem;
+
 public:
     XpressProblem& masterProb;
 
@@ -120,6 +139,7 @@ private:
     // Auxiliary variable in the master problem - necessary for the decomposition
     Variable theta;
 
+    void makeInitialSubProbFormulation(int s);
     void makeInitialMasterProbFormulation(int NR_BIKES);
     void solveMasterProb(bool solveRelaxation);
     void addOptimalityCutToMasterProb(std::vector<double>& E_t, double& e_t);
@@ -139,6 +159,20 @@ private:
     // To store the master problem's solution values of the variables x and theta
     std::vector<double> masterSol_x_t; //xSolValues;
     double masterSol_theta_t; //thetaSolValue;
+
+
+    // To store a subproblem for each scenario
+    // std::vector<std::unique_ptr<XpressProblem>> savedSubproblems;
+    // std::vector<BRP_SubProblem> savedSubproblems;
+
+    // To store the right hand coefficients h for each 2nd-stage constraint j, for each scenario s
+    std::vector<std::vector<double>> h_s_j;
+    // To store the constraint coefficients T for each 1st-stage variable x_i, for each 2nd-stage constraints j, for each scenario s
+    std::vector<std::vector<std::vector<double>>> T_s_j_i;
+
+    // // To store the dual values pi for each 2nd-stage constraints j, for each scenario s
+    // std::vector<std::vector<double>> pi_s_j;
+
 };
 
 // Constructor Method
@@ -155,8 +189,22 @@ TwoStage_LShapedMethod::TwoStage_LShapedMethod(XpressProblem& masterProb,
         this->NR_1ST_STAGE_CONSTRAINTS  = b_i.size();
         NR_STATIONS = NR_1ST_STAGE_VARIABLES;
 
-        this->NR_2ND_STAGE_VARIABLES    = 3 * NR_STATIONS * NR_STATIONS;
+        this->NR_2ND_STAGE_VARIABLES    = NR_STATIONS * NR_STATIONS + 2 * NR_STATIONS;
         this->NR_2ND_STAGE_CONSTRAINTS  = 3 * NR_STATIONS;
+
+        // // Initialize vector of subproblems (one for each scenario)
+        // for (int s=0; s<NR_SCENARIOS; s++) {
+        //     // savedSubproblems.push_back(std::make_unique<XpressProblem>());
+        //     XpressProblem subProb;
+        //     savedSubproblems.push_back(BRP_SubProblem(this, subProb, s));
+        // }
+
+
+        // To store the right hand coefficients h for each 2nd-stage constraint j, for each scenario s
+        h_s_j = std::vector<std::vector<double>>(NR_SCENARIOS, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS));
+        // To store the constraint coefficients T for each 1st-stage variable x_i, for each 2nd-stage constraints j, for each scenario s
+        T_s_j_i = std::vector<std::vector<std::vector<double>>>(NR_SCENARIOS, std::vector<std::vector<double>>(NR_2ND_STAGE_CONSTRAINTS, 
+                                                                                          std::vector<double>(NR_1ST_STAGE_VARIABLES, 0.0)));
 }
 
 void TwoStage_LShapedMethod::runLShapedMethod(int NR_BIKES, bool verbose) {
@@ -282,15 +330,19 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
 
     // ################## Solving Sub Problems ######################
 
-    // To store the right hand coefficients h for each 2nd-stage constraint j, for each scenario s
-    std::vector<std::vector<double>> h_s_j(NR_SCENARIOS, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS));
-    // To store the constraint coefficients T for each 1st-stage variable x_i, for each 2nd-stage constraints j, for each scenario s
-    std::vector<std::vector<std::vector<double>>> T_s_j_i(NR_SCENARIOS, std::vector<std::vector<double>>(NR_2ND_STAGE_CONSTRAINTS, std::vector<double>(NR_1ST_STAGE_VARIABLES, 0.0)));
+    // // To store the right hand coefficients h for each 2nd-stage constraint j, for each scenario s
+    // std::vector<std::vector<double>> h_s_j(NR_SCENARIOS, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS));
+    // // To store the constraint coefficients T for each 1st-stage variable x_i, for each 2nd-stage constraints j, for each scenario s
+    // std::vector<std::vector<std::vector<double>>> T_s_j_i(NR_SCENARIOS, std::vector<std::vector<double>>(NR_2ND_STAGE_CONSTRAINTS, std::vector<double>(NR_1ST_STAGE_VARIABLES, 0.0)));
 
     // To store the dual values pi for each 2nd-stage constraints j, for each scenario s
     std::vector<std::vector<double>> pi_s_j(NR_SCENARIOS, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS));
 
     for (int s=0; s<NR_SCENARIOS; s++) {
+        // BRP_SubProblem subProb_solver = BRP_SubProblem(this, s);
+        // BRP_SubProblem& subProb_solver = savedSubproblems[s];
+
+        // XpressProblem& subProb_s = *savedSubproblems[s];
         XpressProblem subProb_s;
         // subProb_s.callbacks->addMessageCallback(XpressProblem::CallbackAPI::console);
 
@@ -339,18 +391,12 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
         });
         // u_i[i] >= std::max(0.0, d_s_i[s][i] - masterSol_x_t[i]);
         subProb_s.addConstraints(NR_STATIONS, [&](int j) {
-            double firstStageEffect = 0.0;
-            for (int i=0; i<NR_1ST_STAGE_VARIABLES; i++)
-                firstStageEffect += T_s_j_i[s][1*NR_STATIONS+j][i] * masterSol_x_t[i];
-            return (u[j] >= h_s_j[s][1*NR_STATIONS+j] - firstStageEffect);
+            return (u[j] >= h_s_j[s][1*NR_STATIONS+j] - myScalarProduct(T_s_j_i[s][1*NR_STATIONS+j], masterSol_x_t));
                     // .setName(xpress::format("underflow_%d", j));
         });
         // o_i[i] >= std::max(0.0, -d_s_i[s][i] - (b_i[i] - masterSol_x_t[i]));
         subProb_s.addConstraints(NR_STATIONS, [&](int j) {
-            double firstStageEffect = 0.0;
-            for (int i=0; i<NR_1ST_STAGE_VARIABLES; i++)
-                firstStageEffect += T_s_j_i[s][2*NR_STATIONS+j][i] * masterSol_x_t[i];
-            return (o[j] >= h_s_j[s][2*NR_STATIONS+j] - firstStageEffect);
+            return (o[j] >= h_s_j[s][2*NR_STATIONS+j] - myScalarProduct(T_s_j_i[s][2*NR_STATIONS+j], masterSol_x_t));
                     // .setName(xpress::format("overflow_%d", j));
         });
 
@@ -454,6 +500,8 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
     return gap <= epsilon;
 }
 
+
+
 // TODO: Callbacks to generate optimality cuts for each integer feasible solution:
 //          - dont use `addConstraint()` in the callback  (this resets solver state)
 //          - instead, use `addCut()` in the callback (because why not, decrease search space whenever you can), 
@@ -470,6 +518,92 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
 //          - first thing to do lol
 // TODO: Python?
 // TODO: multi-cut?
+
+
+
+// Constructor Method
+// BRP_SubProblem::BRP_SubProblem(TwoStage_LShapedMethod* masterProbSolver, XpressProblem& subProb, int subProbIndex) 
+//      : masterProbSolver(masterProbSolver),
+//     //    subProb( *(masterProbSolver->savedSubproblems[subProbIndex]) )
+//        subProb(subProb)
+//     {
+//         this->subProbIndex = subProbIndex;
+// }
+
+
+// void BRP_SubProblem::makeInitialSubProbFormulation() {
+//     // subProb_s.callbacks->addMessageCallback(XpressProblem::CallbackAPI::console);
+
+//     /* VARIABLES */
+//     std::vector<std::vector<Variable>> y = subProb_s.addVariables(NR_STATIONS, NR_STATIONS)
+//         .withType(ColumnType::Continuous)
+//         // .withName([s](int i, int j){ return xpress::format("s%d_y(%d,%d)", s, i, j); })
+//         .toArray();
+
+//     std::vector<Variable> u = subProb_s.addVariables(NR_STATIONS)
+//         .withType(ColumnType::Continuous)
+//         // .withName([s](int i){ return xpress::format("s%d_u(%d)", s, i); })
+//         .toArray();
+
+//     std::vector<Variable> o = subProb_s.addVariables(NR_STATIONS)
+//         .withType(ColumnType::Continuous)
+//         // .withName([s](int i){ return xpress::format("s%d_o(%d)", s, i); })
+//         .toArray();
+    
+//     /* CONSTRAINTS */
+//     for (int i=0; i<NR_STATIONS; i++) {
+//         // u_i[i] >= std::max(0.0, d_s_i[s][i] - masterSol_x_t[i]);
+//         // o_i[i] >= std::max(0.0, -d_s_i[s][i] - (b_i[i] - masterSol_x_t[i]));
+//         h_s_j[s][0*NR_STATIONS+i]      = -d_s_i[s][i];
+//         h_s_j[s][1*NR_STATIONS+i]      = d_s_i[s][i];
+//         h_s_j[s][2*NR_STATIONS+i]      = -d_s_i[s][i] - b_i[i];
+//         T_s_j_i[s][0*NR_STATIONS+i][i] = 0.0;
+//         T_s_j_i[s][1*NR_STATIONS+i][i] = 1.0;
+//         T_s_j_i[s][2*NR_STATIONS+i][i] = -1.0;
+//     }
+    
+//     std::vector<LinExpression> end_of_day_net_recourse_flows(NR_STATIONS);
+
+//     for (int i=0; i<NR_STATIONS; i++) {
+//         LinExpression net_recourse_flow = LinExpression::create();
+//         for (int j=0; j<NR_STATIONS; j++) {
+//             net_recourse_flow.addTerm(y[i][j], 1).addTerm(y[j][i], -1);
+//         }
+//         end_of_day_net_recourse_flows[i] = net_recourse_flow;
+//         // during_day_net_customer_flows[i] = -( d_s_i[s][i] - u[i] + o[i] );
+//     }
+
+//     subProb_s.addConstraints(NR_STATIONS, [&](int j) {
+//         return (end_of_day_net_recourse_flows[j] == u[j] - o[j] + h_s_j[s][j] - myScalarProduct(T_s_j_i[s][j], masterSol_x_t));
+//                 // .setName(xpress::format("FlowCons_S%d", j));
+//     });
+//     // u_i[i] >= std::max(0.0, d_s_i[s][i] - masterSol_x_t[i]);
+//     subProb_s.addConstraints(NR_STATIONS, [&](int j) {
+//         return (u[j] >= h_s_j[s][1*NR_STATIONS+j] - myScalarProduct(T_s_j_i[s][1*NR_STATIONS+j], masterSol_x_t));
+//                 // .setName(xpress::format("underflow_%d", j));
+//     });
+//     // o_i[i] >= std::max(0.0, -d_s_i[s][i] - (b_i[i] - masterSol_x_t[i]));
+//     subProb_s.addConstraints(NR_STATIONS, [&](int j) {
+//         return (o[j] >= h_s_j[s][2*NR_STATIONS+j] - myScalarProduct(T_s_j_i[s][2*NR_STATIONS+j], masterSol_x_t));
+//                 // .setName(xpress::format("overflow_%d", j));
+//     });
+
+//     // std::cout << "\tBuilt sub problem constraints" << std::endl;
+
+//     /* OBJECTIVE */
+//     LinExpression objective = LinExpression::create();
+//     for (int i=0; i<NR_STATIONS; i++) {
+//         for (int j=0; j<NR_STATIONS; j++) {
+//             objective.addTerm(c_ij[i][j], y[i][j]);
+//         }
+//         objective.addTerm(q_i_1[i], u[i]);
+//         objective.addTerm(q_i_2[i], o[i]);
+//     }
+//     subProb_s.setObjective(objective, xpress::ObjSense::Minimize);
+// }
+
+
+
 
 
 int main() {
