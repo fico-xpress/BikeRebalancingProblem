@@ -85,25 +85,25 @@ std::vector<std::vector<double>> myMultiplyMatrices(std::vector<std::vector<doub
 }
 
 // Forward declaration of TwoStage_LShapedMethod class such that the BRP_SubProblem knows it exists
-// class TwoStage_LShapedMethod;
+class TwoStage_LShapedMethod;
 
 
-// class BRP_SubProblem {
-// public:
-//     XpressProblem& subProb;
-//     TwoStage_LShapedMethod* masterProbSolver;
-//     int subProbIndex;
+class BRP_SubProblem {
+public:
+    XpressProblem& subProb;
+    TwoStage_LShapedMethod* masterProbSolver;
+    int subProbIndex;
 
-//     // BRP_SubProblem(TwoStage_LShapedMethod* masterProbSolver, int subProbIndex);
-//     BRP_SubProblem(TwoStage_LShapedMethod* masterProbSolver, XpressProblem& subProb, int subProbIndex);
-//     void makeInitialSubProbFormulation(int s);
-// };
+    // BRP_SubProblem(TwoStage_LShapedMethod* masterProbSolver, int subProbIndex);
+    BRP_SubProblem(TwoStage_LShapedMethod* masterProbSolver, XpressProblem& subProb, int subProbIndex);
+    void makeInitialSubProbFormulation(int s);
+};
 
 
 
 class TwoStage_LShapedMethod {
      // Such that the BRP_SubProblem class can access TwoStage_LShapedMethod's private members
-    // friend class BRP_SubProblem;
+    friend class BRP_SubProblem;
 
 public:
     XpressProblem& masterProb;
@@ -163,7 +163,7 @@ private:
 
     // To store a subproblem for each scenario
     // std::vector<std::unique_ptr<XpressProblem>> savedSubproblems;
-    // std::vector<BRP_SubProblem> savedSubproblems;
+    std::vector<BRP_SubProblem> savedSubproblems;
 
     // To store the right hand coefficients h for each 2nd-stage constraint j, for each scenario s
     std::vector<std::vector<double>> h_s_j;
@@ -192,12 +192,12 @@ TwoStage_LShapedMethod::TwoStage_LShapedMethod(XpressProblem& masterProb,
         this->NR_2ND_STAGE_VARIABLES    = NR_STATIONS * NR_STATIONS + 2 * NR_STATIONS;
         this->NR_2ND_STAGE_CONSTRAINTS  = 3 * NR_STATIONS;
 
-        // // Initialize vector of subproblems (one for each scenario)
-        // for (int s=0; s<NR_SCENARIOS; s++) {
-        //     // savedSubproblems.push_back(std::make_unique<XpressProblem>());
-        //     XpressProblem subProb;
-        //     savedSubproblems.push_back(BRP_SubProblem(this, subProb, s));
-        // }
+        // Initialize vector of subproblems (one for each scenario)
+        for (int s=0; s<NR_SCENARIOS; s++) {
+            // savedSubproblems.push_back(std::make_unique<XpressProblem>());
+            XpressProblem subProb;
+            savedSubproblems.push_back(BRP_SubProblem(this, subProb, s));
+        }
 
 
         // To store the right hand coefficients h for each 2nd-stage constraint j, for each scenario s
@@ -340,7 +340,7 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
 
     for (int s=0; s<NR_SCENARIOS; s++) {
         // BRP_SubProblem subProb_solver = BRP_SubProblem(this, s);
-        // BRP_SubProblem& subProb_solver = savedSubproblems[s];
+        BRP_SubProblem& subProb_solver = savedSubproblems[s];
 
         // XpressProblem& subProb_s = *savedSubproblems[s];
         XpressProblem subProb_s;
@@ -522,13 +522,13 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
 
 
 // Constructor Method
-// BRP_SubProblem::BRP_SubProblem(TwoStage_LShapedMethod* masterProbSolver, XpressProblem& subProb, int subProbIndex) 
-//      : masterProbSolver(masterProbSolver),
-//     //    subProb( *(masterProbSolver->savedSubproblems[subProbIndex]) )
-//        subProb(subProb)
-//     {
-//         this->subProbIndex = subProbIndex;
-// }
+BRP_SubProblem::BRP_SubProblem(TwoStage_LShapedMethod* masterProbSolver, XpressProblem& subProb, int subProbIndex) 
+     : masterProbSolver(masterProbSolver),
+    //    subProb( *(masterProbSolver->savedSubproblems[subProbIndex]) )
+       subProb(subProb)
+    {
+        this->subProbIndex = subProbIndex;
+}
 
 
 // void BRP_SubProblem::makeInitialSubProbFormulation() {
