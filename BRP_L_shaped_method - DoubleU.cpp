@@ -2,6 +2,7 @@
 #include <stdexcept> // For throwing exceptions
 #include <unordered_map>
 #include <chrono>
+#include <numeric>
 #include "DataFrame.h"
 
 using namespace xpress;
@@ -72,7 +73,34 @@ std::vector<std::vector<double>> myMultiplyMatrices(std::vector<std::vector<doub
 }
 
 
+// Forward declaration of TwoStage_LShapedMethod class such that the BRP_SubProblem knows it exists
+class TwoStage_LShapedMethod;
+
+
+class BRP_SubProblem {
+public:
+    std::unique_ptr<XpressProblem> subProbPtr;
+    TwoStage_LShapedMethod* masterProbSolver;
+    int s;
+    int& NR_STATIONS;
+
+    // 2nd-stage decision variables
+    std::vector<std::vector<Variable>> y;
+    std::vector<std::vector<Variable>> u;
+
+    BRP_SubProblem(TwoStage_LShapedMethod* masterProbSolver, std::unique_ptr<XpressProblem> subProbPtr, int subProbIndex);
+    void makeInitialSubProbFormulation();
+    void updateFirstStageVariableValues();
+    std::vector<double> computeNewRightHandSides();
+    void BRP_SubProblem::solveSubProblem();
+};
+
+
+
 class TwoStage_LShapedMethod {
+     // Such that the BRP_SubProblem class can access TwoStage_LShapedMethod's private members
+    friend class BRP_SubProblem;
+
 public:
     XpressProblem& masterProb;
 
@@ -128,6 +156,15 @@ private:
     double masterSol_theta_t; //thetaSolValue;
 
     std::vector<std::vector<double>> netDemand_s_i;
+
+    // To store a subproblem for each scenario
+    // std::vector<std::unique_ptr<XpressProblem>> savedSubproblems;
+    std::vector<BRP_SubProblem> savedSubproblems;
+
+    // To store the right hand coefficients h for each 2nd-stage constraint j, for each scenario s
+    std::vector<std::vector<double>> h_s_j;
+    // To store the constraint coefficients T for each 1st-stage variable x_i, for each 2nd-stage constraints j, for each scenario s
+    std::vector<std::vector<std::vector<double>>> T_s_j_i;
 };
 
 // Constructor Method
@@ -153,10 +190,11 @@ TwoStage_LShapedMethod::TwoStage_LShapedMethod(XpressProblem& masterProb,
         for (int i=0; i<NR_STATIONS; i++) {
             for (int j=0; j<NR_STATIONS; j++) {
                 netDemand_s_i[s][i] += d_s_ij[s][i][j];
-                netDemand_s_i[s][j] -= d_s_ij[s][i][j];
+                netDemand_s_i[s][j] -= d_s_ij[s][i][j]; 
             }
         }
     }
+    // Printing:
     if (NR_STATIONS <= 4) {
         for (int s=0; s<NR_SCENARIOS; s++) {
             std::cout << "SCENARIO " << s << std::endl;
@@ -166,6 +204,21 @@ TwoStage_LShapedMethod::TwoStage_LShapedMethod(XpressProblem& masterProb,
             std::cout << std::endl;
         }
     }
+
+    // Initialize vector of subproblems (one for each scenario)
+    for (int s=0; s<NR_SCENARIOS; s++) {
+        // To make sure the created XpressProblem-object lives for longer than just this for-loop, we need to turn
+        // the XpressProblem into a unique_ptr such that we are able to transfer ownership of the object to the BRP_SubProblem subclass
+        std::unique_ptr<XpressProblem> subProbPtr = std::make_unique<XpressProblem>();
+        // Initialize BRP_SubProblem with transferred ownership of the subProbPtr
+        savedSubproblems.push_back(BRP_SubProblem(this, std::move(subProbPtr), s));
+    }
+
+    // To store the right hand coefficients h for each 2nd-stage constraint j, for each scenario s
+    h_s_j = std::vector<std::vector<double>>(NR_SCENARIOS, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS));
+    // To store the constraint coefficients T for each 1st-stage variable x_i, for each 2nd-stage constraints j, for each scenario s
+    T_s_j_i = std::vector<std::vector<std::vector<double>>>(NR_SCENARIOS, std::vector<std::vector<double>>(NR_2ND_STAGE_CONSTRAINTS, 
+                                                                                        std::vector<double>(NR_1ST_STAGE_VARIABLES, 0.0)));
 }
 
 void TwoStage_LShapedMethod::runLShapedMethod(int NR_BIKES, bool verbose) {
@@ -177,6 +230,12 @@ void TwoStage_LShapedMethod::runLShapedMethod(int NR_BIKES, bool verbose) {
     std::cout << std::endl << "STARTING ITERATION " << iter << std::endl;
     solveMasterProb(true);
     // ################## Iteration 0: End of Solving Master Problem ######################
+
+    /* ################## Iteration 0: Model all the Sub Problems ###################### */
+    for (int s=0; s<NR_SCENARIOS; s++) {
+        savedSubproblems[s].makeInitialSubProbFormulation();
+    }
+
     // ################## Iteration 0: Start of Solving Sub Problems ######################
 
     double e_t = 0.0;
@@ -291,145 +350,20 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
 
     // ################## Solving Sub Problems ######################
 
-    // To store the right hand coefficients h for each 2nd-stage constraint j, for each scenario s
-    std::vector<std::vector<double>> h_s_j(NR_SCENARIOS, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS));
-    // To store the constraint coefficients T for each 1st-stage variable x_i, for each 2nd-stage constraints j, for each scenario s
-    std::vector<std::vector<std::vector<double>>> T_s_j_i(NR_SCENARIOS, std::vector<std::vector<double>>(NR_2ND_STAGE_CONSTRAINTS, std::vector<double>(NR_1ST_STAGE_VARIABLES, 0.0)));
-
     // To store the dual values pi for each 2nd-stage constraints j, for each scenario s
     std::vector<std::vector<double>> pi_s_j(NR_SCENARIOS, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS));
 
     for (int s=0; s<NR_SCENARIOS; s++) {
-        XpressProblem subProb_s;
-        // subProb_s.callbacks->addMessageCallback(XpressProblem::CallbackAPI::console);
+        BRP_SubProblem& subProbSolver = savedSubproblems[s];
+        subProbSolver.updateFirstStageVariableValues();
+        subProbSolver.solveSubProblem();
 
-        /* VARIABLES */
-        std::vector<std::vector<Variable>> y = subProb_s.addVariables(NR_STATIONS, NR_STATIONS)
-            .withType(ColumnType::Continuous)
-            // .withName([s](int i, int j){ return xpress::format("s%d_y(%d,%d)", s, i, j); })
-            .toArray();
-
-        std::vector<std::vector<Variable>> u = subProb_s.addVariables(NR_STATIONS, NR_STATIONS)
-            .withType(ColumnType::Continuous)
-            // .withName([s](int i, int j){ return xpress::format("s%d_u(%d,%d)", s, i, j); })
-            .toArray();
-        
-        // std::cout << "\tBuilt sub problem variables" << std::endl;
-
-        /* CONSTRAINTS */
-
-        for (int i=0; i<NR_STATIONS; i++) {
-            h_s_j[s][0*NR_STATIONS+i]      = -netDemand_s_i[s][i];
-            h_s_j[s][1*NR_STATIONS+i]      = (b_i[i] + netDemand_s_i[s][i]);
-            h_s_j[s][2*NR_STATIONS+i]      = netDemand_s_i[s][i];
-
-            T_s_j_i[s][0*NR_STATIONS+i][i] = 0.0;
-            T_s_j_i[s][1*NR_STATIONS+i][i] = 1.0;
-            T_s_j_i[s][2*NR_STATIONS+i][i] = 1.0;
-        }
-
-        std::vector<LinExpression> end_of_day_net_recourse_flows(NR_STATIONS);
-        std::vector<Expression> during_day_net_customer_flows(NR_STATIONS);
-        std::vector<LinExpression> nr_disabled_incoming_trips(NR_STATIONS);
-        std::vector<LinExpression> nr_disabled_outgoing_trips(NR_STATIONS);
-
-        for (int i=0; i<NR_STATIONS; i++) {
-            LinExpression net_recourse_flow = LinExpression::create();
-            LinExpression outgoing_trips = LinExpression::create();
-            LinExpression incoming_trips = LinExpression::create();
-            for (int j=0; j<NR_STATIONS; j++) {
-                net_recourse_flow.addTerm(y[i][j], 1).addTerm(y[j][i], -1);
-                outgoing_trips.addTerm(u[i][j], 1);
-                incoming_trips.addTerm(u[j][i], 1);
-            }
-            end_of_day_net_recourse_flows[i] = net_recourse_flow;
-            nr_disabled_outgoing_trips[i] = outgoing_trips;
-            nr_disabled_incoming_trips[i] = incoming_trips;
-            during_day_net_customer_flows[i] = -(netDemand_s_i[s][i] - nr_disabled_outgoing_trips[i] + nr_disabled_incoming_trips[i]);
-        }
-
-        subProb_s.addConstraints(NR_STATIONS, [&](int j) {
-            return (-end_of_day_net_recourse_flows[j] - nr_disabled_outgoing_trips[j]
-                    + nr_disabled_incoming_trips[j] == h_s_j[s][j]);
-                    // .setName(xpress::format("FlowCons_S%d", j));
-        });
-        subProb_s.addConstraints(NR_STATIONS, [&](int j) {
-            // return (masterSol_x_t[i] + during_day_net_customer_flows[i] <= b_i[i]);
-            return (nr_disabled_outgoing_trips[j] - nr_disabled_incoming_trips[j] <= 
-                    h_s_j[s][1*NR_STATIONS+j] - myScalarProduct(T_s_j_i[s][1*NR_STATIONS+j], masterSol_x_t));
-                    // .setName(xpress::format("lt_bi_S%d", j));
-        });
-        subProb_s.addConstraints(NR_STATIONS, [&](int j) {
-            // return (masterSol_x_t[i] + during_day_net_customer_flows[i] >= 0.0);
-            return (nr_disabled_outgoing_trips[j] - nr_disabled_incoming_trips[j] >= 
-                    h_s_j[s][2*NR_STATIONS+j] - myScalarProduct(T_s_j_i[s][2*NR_STATIONS+j], masterSol_x_t));
-                    // .setName(xpress::format("gt_zero_S%d", j));
-        });
-
-        // std::cout << "\tBuilt sub problem constraints" << std::endl;
-
-        /* OBJECTIVE */
-        LinExpression objective = LinExpression::create();
-        for (int i=0; i<NR_STATIONS; i++) {
-            for (int j=0; j<NR_STATIONS; j++) {
-                objective.addTerm(c_ij[i][j], y[i][j]);
-                objective.addTerm(q_ij[i][j], u[i][j]);
-            }
-        }
-        subProb_s.setObjective(objective, xpress::ObjSense::Minimize);
-
-        // std::cout << "\tCreated Sub Problem" << std::endl;
-
-        /* INSPECT, SOLVE & PRINT */
-        // subProb_s.writeProb(xpress::format("SubProb_%d.lp", s), "l");
-        subProb_s.optimize();
-
-        // Check the solution status
-        if (subProb_s.getSolStatus() != SolStatus::Optimal && subProb_s.getSolStatus() != SolStatus::Feasible) {
-            std::ostringstream oss; oss << subProb_s.getSolStatus(); // Convert xpress::SolStatus to String
-            throw std::runtime_error("Optimization failed with status " + oss.str());
-        }
-
-        // Retrieve the solution values
-        if (NR_SCENARIOS <= 5)
-            std::cout << "\tScenario " << s << ": Sub Problem Solution" << std::endl;
-
-        if (verbose) {
-            std::cout << "\t\tObjective value = " << subProb_s.getObjVal() << std::endl;
-            std::vector<double> solutionValues = subProb_s.getSolution();
-
-            double nrBikesMovedEndOfDay = 0.0, nrUnmetDemand = 0.0;
-            for (int i=0; i<NR_STATIONS; i++) {
-                for (int j=0; j<NR_STATIONS; j++) {
-                    nrBikesMovedEndOfDay += y[i][j].getValue(solutionValues);
-                    nrUnmetDemand += u[i][j].getValue(solutionValues);
-                }
-            }
-            std::cout << "\t\tnrBikesMovedEndOfDay = " << nrBikesMovedEndOfDay << std::endl;
-            std::cout << "\t\tnrUnmetDemand = " << nrUnmetDemand << std::endl;
-
-            // for (int i=0; i<NR_STATIONS; i++) {
-            //     std::cout << "\t\tStation " << i << std::endl;
-            //     std::cout << "\t\t\tend-of-day-flow = " << -end_of_day_net_recourse_flows[i].evaluate(solutionValues) << std::endl;
-            //     std::cout << "\t\t\tunmet-outgoing-trips = " << nr_disabled_outgoing_trips[i].evaluate(solutionValues) << std::endl;
-            //     std::cout << "\t\t\tunmet-incoming-trips = " << nr_disabled_incoming_trips[i].evaluate(solutionValues) << std::endl;
-            //     std::cout << "\t\t\tduring-day-flow = " << during_day_net_customer_flows[i].evaluate(solutionValues) << std::endl;
-            // }
-            // for (int i=0; i<NR_STATIONS; i++) {
-            //     for (int j=0; j<NR_STATIONS; j++) {
-            //         std::cout << "\t\t" << y[i][j].getName() << " = " << y[i][j].getValue(solutionValues) << std::endl;
-            //         std::cout << "\t\t" << u[i][j].getName() << " = " << u[i][j].getValue(solutionValues) << std::endl;
-            //     }
-            // }
-        }
-
-        pi_s_j[s] = subProb_s.getDuals();
+        pi_s_j[s] = subProbSolver.subProbPtr->getDuals();
         if (pi_s_j[s].size() != NR_2ND_STAGE_CONSTRAINTS) throw std::invalid_argument("Disable presolve please, thanks");
 
         if (verbose) {
             std::cout << "\t\tpi_s" << s << " = ";
-            std::vector<double> duals = subProb_s.getDuals();
-            for (int i=0; i<duals.size(); i++) std::cout << duals[i] << ",  ";
+            for (int i=0; i<pi_s_j[s].size(); i++) std::cout << pi_s_j[s][i] << ",  ";
             std::cout << std::endl << std::endl;
         }
     }
@@ -483,6 +417,162 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
 // TODO: multi-cut?
 
 
+
+
+// Constructor Method of BRP_SubProblem class, taking unique ownership of the subProbPtr
+BRP_SubProblem::BRP_SubProblem(TwoStage_LShapedMethod* masterProbSolver, std::unique_ptr<XpressProblem> subProbPtr, int subProbIndex) 
+     : masterProbSolver(masterProbSolver), subProbPtr(std::move(subProbPtr)), NR_STATIONS(masterProbSolver->NR_STATIONS)
+    {
+        this->s = subProbIndex;
+}
+
+void BRP_SubProblem::makeInitialSubProbFormulation() {
+    // subProbPtr->callbacks->addMessageCallback(XpressProblem::CallbackAPI::console);
+
+    /* VARIABLES */
+    this->y = subProbPtr->addVariables(NR_STATIONS, NR_STATIONS)
+        .withType(ColumnType::Continuous)
+        .withName([&](int i, int j){ return xpress::format("s%d_y(%d,%d)", s, i, j); })
+        .toArray();
+
+    this->u = subProbPtr->addVariables(NR_STATIONS, NR_STATIONS)
+        .withType(ColumnType::Continuous)
+        .withName([&](int i, int j){ return xpress::format("s%d_u(%d,%d)", s, i, j); })
+        .toArray();
+    
+    // std::cout << "\tBuilt sub problem variables" << std::endl;
+
+    /* CONSTRAINTS */
+
+    for (int i=0; i<NR_STATIONS; i++) {
+        masterProbSolver->h_s_j[s][0*NR_STATIONS+i]      = - masterProbSolver->netDemand_s_i[s][i];
+        masterProbSolver->h_s_j[s][1*NR_STATIONS+i]      = (masterProbSolver->b_i[i] + masterProbSolver->netDemand_s_i[s][i]);
+        masterProbSolver->h_s_j[s][2*NR_STATIONS+i]      = masterProbSolver->netDemand_s_i[s][i];
+
+        masterProbSolver->T_s_j_i[s][0*NR_STATIONS+i][i] = 0.0;
+        masterProbSolver->T_s_j_i[s][1*NR_STATIONS+i][i] = 1.0;
+        masterProbSolver->T_s_j_i[s][2*NR_STATIONS+i][i] = 1.0;
+    }
+
+    std::vector<LinExpression> end_of_day_net_recourse_flows(NR_STATIONS);
+    std::vector<Expression> during_day_net_customer_flows(NR_STATIONS);
+    std::vector<LinExpression> nr_disabled_incoming_trips(NR_STATIONS);
+    std::vector<LinExpression> nr_disabled_outgoing_trips(NR_STATIONS);
+
+    for (int i=0; i<NR_STATIONS; i++) {
+        LinExpression net_recourse_flow = LinExpression::create();
+        LinExpression outgoing_trips = LinExpression::create();
+        LinExpression incoming_trips = LinExpression::create();
+        for (int j=0; j<NR_STATIONS; j++) {
+            net_recourse_flow.addTerm(y[i][j], 1).addTerm(y[j][i], -1);
+            outgoing_trips.addTerm(u[i][j], 1);
+            incoming_trips.addTerm(u[j][i], 1);
+        }
+        end_of_day_net_recourse_flows[i] = net_recourse_flow;
+        nr_disabled_outgoing_trips[i] = outgoing_trips;
+        nr_disabled_incoming_trips[i] = incoming_trips;
+        during_day_net_customer_flows[i] = -(masterProbSolver->netDemand_s_i[s][i] - nr_disabled_outgoing_trips[i] + nr_disabled_incoming_trips[i]);
+    }
+
+    subProbPtr->addConstraints(NR_STATIONS, [&](int j) {
+        return (-end_of_day_net_recourse_flows[j] - nr_disabled_outgoing_trips[j]
+                + nr_disabled_incoming_trips[j] == masterProbSolver->h_s_j[s][j]);
+                // .setName(xpress::format("FlowCons_S%d", j));
+    });
+    subProbPtr->addConstraints(NR_STATIONS, [&](int j) {
+        // return (masterSol_x_t[i] + during_day_net_customer_flows[i] <= b_i[i]);
+        return (nr_disabled_outgoing_trips[j] - nr_disabled_incoming_trips[j] <= 
+                masterProbSolver->h_s_j[s][1*NR_STATIONS+j] - myScalarProduct(masterProbSolver->T_s_j_i[s][1*NR_STATIONS+j], masterProbSolver->masterSol_x_t));
+                // .setName(xpress::format("lt_bi_S%d", j));
+    });
+    subProbPtr->addConstraints(NR_STATIONS, [&](int j) {
+        // return (masterSol_x_t[i] + during_day_net_customer_flows[i] >= 0.0);
+        return (nr_disabled_outgoing_trips[j] - nr_disabled_incoming_trips[j] >= 
+                masterProbSolver->h_s_j[s][2*NR_STATIONS+j] - myScalarProduct(masterProbSolver->T_s_j_i[s][2*NR_STATIONS+j], masterProbSolver->masterSol_x_t));
+                // .setName(xpress::format("gt_zero_S%d", j));
+    });
+
+    // std::cout << "\tBuilt sub problem constraints" << std::endl;
+
+    /* OBJECTIVE */
+    LinExpression objective = LinExpression::create();
+    for (int i=0; i<NR_STATIONS; i++) {
+        for (int j=0; j<NR_STATIONS; j++) {
+            objective.addTerm(masterProbSolver->c_ij[i][j], y[i][j]);
+            objective.addTerm(masterProbSolver->q_ij[i][j], u[i][j]);
+        }
+    }
+    subProbPtr->setObjective(objective, xpress::ObjSense::Minimize);
+}
+
+std::vector<double> BRP_SubProblem::computeNewRightHandSides() {
+    std::vector<double> rhsCoeffs(masterProbSolver->NR_2ND_STAGE_CONSTRAINTS);
+
+    for (int j=0; j<masterProbSolver->NR_2ND_STAGE_CONSTRAINTS; j++) {
+        rhsCoeffs[j] = masterProbSolver->h_s_j[s][j] - myScalarProduct(masterProbSolver->T_s_j_i[s][j], masterProbSolver->masterSol_x_t);
+    }
+    return rhsCoeffs;
+}
+
+void BRP_SubProblem::updateFirstStageVariableValues() {
+    // If there are new values for the first-stage decision variables x,
+    // we have to update the right-hand sides of some of the constraints in the subproblem
+
+    // Some dimension checking
+    int nrConstraints1 = subProbPtr->getOriginalRows();
+    int nrConstraints2 = subProbPtr->getRows();
+    if (nrConstraints1 != nrConstraints2) throw std::invalid_argument("Disable presolve please, thanks");
+    if (nrConstraints1 != masterProbSolver->NR_2ND_STAGE_CONSTRAINTS) throw std::invalid_argument("Disable presolve please, thanks");
+
+    // New right hand side values based on new values of x
+    std::vector<double> newRightHandSides = computeNewRightHandSides();
+
+    // Make a vector with integer values from 0 to newRightHandSides.size()-1
+    std::vector<int> newRightHandSidesIndices(newRightHandSides.size());
+    std::iota(newRightHandSidesIndices.begin(), newRightHandSidesIndices.end(), 0);
+
+    subProbPtr->chgRhs(newRightHandSides.size(), newRightHandSidesIndices, newRightHandSides);
+}
+
+void BRP_SubProblem::solveSubProblem() {
+    // subProbPtr->writeProb(xpress::format("SubProb_%d.%d.lp", iter, s), "l");
+
+    subProbPtr->optimize();
+
+    // Check the solution status
+    if (subProbPtr->getSolStatus() != SolStatus::Optimal && subProbPtr->getSolStatus() != SolStatus::Feasible) {
+        std::ostringstream oss; oss << subProbPtr->getSolStatus(); // Convert xpress::SolStatus to String
+        throw std::runtime_error("Optimization of subProblem " + std::to_string(s) + " in iteration " +
+                                 std::to_string(masterProbSolver->iter) + " failed with status " + oss.str());
+    }
+
+    // Optionally print some information
+    if (masterProbSolver->verbose) {
+        std::cout << "\tScenario " << s << ": Sub Problem Solved" << std::endl;
+        std::cout << "\t\tObjective value = " << subProbPtr->getObjVal() << std::endl;
+        std::vector<double> solutionValues = subProbPtr->getSolution();
+
+        double nrBikesMovedEndOfDay = 0.0, nrUnmetDemand = 0.0;
+        for (int i=0; i<NR_STATIONS; i++) {
+            for (int j=0; j<NR_STATIONS; j++) {
+                nrBikesMovedEndOfDay += y[i][j].getValue(solutionValues);
+                nrUnmetDemand += u[i][j].getValue(solutionValues);
+            }
+        }
+        std::cout << "\t\tnrBikesMovedEndOfDay = " << nrBikesMovedEndOfDay << std::endl;
+        std::cout << "\t\tnrUnmetDemand = " << nrUnmetDemand << std::endl;
+
+        // for (int i=0; i<NR_STATIONS; i++) {
+        //     for (int j=0; j<NR_STATIONS; j++) {
+        //         std::cout << "\t\t" << y[i][j].getName() << " = " << y[i][j].getValue(solutionValues) << std::endl;
+        //         std::cout << "\t\t" << u[i][j].getName() << " = " << u[i][j].getValue(solutionValues) << std::endl;
+        //     }
+        // }
+    }
+}
+
+
+
 int main() {
     try {
         // Station information data:
@@ -534,6 +624,10 @@ int main() {
         int NR_STATIONS = b_i.size();
         int NR_SCENARIOS = d_s_ij.size();
         int NR_BIKES = mySum(b_i) / 3;
+
+        std::cout << "NR_STATIONS = " << NR_STATIONS << std::endl;
+        std::cout << "NR_SCENARIOS = " << NR_SCENARIOS << std::endl;
+        std::cout << "NR_BIKES = " << NR_BIKES << std::endl;
 
         // Objective coefficients c for each first-stage decision variable x_i
         std::vector<double> c_i(NR_STATIONS, 10);

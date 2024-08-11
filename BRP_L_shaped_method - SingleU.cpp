@@ -1,7 +1,8 @@
 #include <xpress.hpp>
 #include <stdexcept> // For throwing exceptions
 #include <unordered_map>
-#include <chrono>
+#include <chrono>   // For timekeeping
+#include <numeric>  // For std::iota() function
 #include "DataFrame.h"
 
 
@@ -103,6 +104,9 @@ public:
 
     BRP_SubProblem(TwoStage_LShapedMethod* masterProbSolver, std::unique_ptr<XpressProblem> subProbPtr, int subProbIndex);
     void makeInitialSubProbFormulation();
+    void updateFirstStageVariableValues();
+    std::vector<double> computeNewRightHandSides();
+    void BRP_SubProblem::solveSubProblem();
 };
 
 
@@ -168,17 +172,12 @@ private:
 
 
     // To store a subproblem for each scenario
-    // std::vector<std::unique_ptr<XpressProblem>> savedSubproblems;
     std::vector<BRP_SubProblem> savedSubproblems;
 
     // To store the right hand coefficients h for each 2nd-stage constraint j, for each scenario s
     std::vector<std::vector<double>> h_s_j;
     // To store the constraint coefficients T for each 1st-stage variable x_i, for each 2nd-stage constraints j, for each scenario s
     std::vector<std::vector<std::vector<double>>> T_s_j_i;
-
-    // // To store the dual values pi for each 2nd-stage constraints j, for each scenario s
-    // std::vector<std::vector<double>> pi_s_j;
-
 };
 
 // Constructor Method
@@ -216,14 +215,20 @@ TwoStage_LShapedMethod::TwoStage_LShapedMethod(XpressProblem& masterProb,
 
 void TwoStage_LShapedMethod::runLShapedMethod(int NR_BIKES, bool verbose) {
     this->verbose = verbose;
+    std::cout << std::endl << "STARTING ITERATION " << iter << std::endl;
+
+    /* ################## Iteration 0: Model the Master Problem ###################### */
     makeInitialMasterProbFormulation(NR_BIKES);
 
-    // ################## Iteration 0: Start of Solving Master Problem ######################
-    std::cout << std::endl << "STARTING ITERATION " << iter << std::endl;
+    /* ################## Iteration 0: Start of Solving Master Problem ###################### */
     solveMasterProb(true);
-    // ################## Iteration 0: End of Solving Master Problem ######################
-    // ################## Iteration 0: Start of Solving Sub Problems ######################
 
+    /* ################## Iteration 0: Model all the Sub Problems ###################### */
+    for (int s=0; s<NR_SCENARIOS; s++) {
+        savedSubproblems[s].makeInitialSubProbFormulation();
+    }
+
+    /* ################## Iteration 0: Start of Solving Sub Problems ###################### */
     double e_t = 0.0;
     std::vector<double> E_t(NR_1ST_STAGE_VARIABLES, 0.0);
     bool masterIsOptimal = this->generateOptimalityCut(E_t, e_t);
@@ -233,12 +238,13 @@ void TwoStage_LShapedMethod::runLShapedMethod(int NR_BIKES, bool verbose) {
         return;
     }
 
+    /* ################## Iteration 0: Add new Variable to Master Problem ###################### */
     this->theta = masterProb.addVariable(XPRS_MINUSINFINITY, XPRS_PLUSINFINITY, ColumnType::Continuous, "theta");
     // Add theta to the objective, with coefficient 1.0
     theta.chgObj(1.0);
 
-    // ################## Iteration 0: End of Solving Sub Problems ######################
-    // ################## Perform the Rest of the Iterations ######################
+    /* ########################### End of Iteration 0 ############################# */
+    /* ################## Perform the Rest of the Iterations ###################### */
 
     while (true) {
         iter++;
@@ -337,150 +343,30 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
 
     // ################## Solving Sub Problems ######################
 
-    // // To store the right hand coefficients h for each 2nd-stage constraint j, for each scenario s
-    // std::vector<std::vector<double>> h_s_j(NR_SCENARIOS, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS));
-    // // To store the constraint coefficients T for each 1st-stage variable x_i, for each 2nd-stage constraints j, for each scenario s
-    // std::vector<std::vector<std::vector<double>>> T_s_j_i(NR_SCENARIOS, std::vector<std::vector<double>>(NR_2ND_STAGE_CONSTRAINTS, std::vector<double>(NR_1ST_STAGE_VARIABLES, 0.0)));
-
     // To store the dual values pi for each 2nd-stage constraints j, for each scenario s
     std::vector<std::vector<double>> pi_s_j(NR_SCENARIOS, std::vector<double>(NR_2ND_STAGE_CONSTRAINTS));
 
     for (int s=0; s<NR_SCENARIOS; s++) {
-        BRP_SubProblem& subProb_solver = savedSubproblems[s];
-        // subProb_solver->subProb.addVariables(20).toArray();
-        subProb_solver.makeInitialSubProbFormulation();
+        BRP_SubProblem& subProbSolver = savedSubproblems[s];
+        // Remake subProb from scratch:
+        // std::unique_ptr<XpressProblem> subProbPtr = std::make_unique<XpressProblem>();
+        // BRP_SubProblem& subProb_solver = BRP_SubProblem(this, std::move(subProbPtr), s);
+        // subProb_solver.makeInitialSubProbFormulation();
 
-        
+        subProbSolver.updateFirstStageVariableValues();
+        subProbSolver.solveSubProblem();
 
-        // XpressProblem subProb_s;
-        // // subProb_s.callbacks->addMessageCallback(XpressProblem::CallbackAPI::console);
-
-        // /* VARIABLES */
-        // std::vector<std::vector<Variable>> y = subProb_s.addVariables(NR_STATIONS, NR_STATIONS)
-        //     .withType(ColumnType::Continuous)
-        //     // .withName([s](int i, int j){ return xpress::format("s%d_y(%d,%d)", s, i, j); })
-        //     .toArray();
-
-        // std::vector<Variable> u = subProb_s.addVariables(NR_STATIONS)
-        //     .withType(ColumnType::Continuous)
-        //     // .withName([s](int i){ return xpress::format("s%d_u(%d)", s, i); })
-        //     .toArray();
-
-        // std::vector<Variable> o = subProb_s.addVariables(NR_STATIONS)
-        //     .withType(ColumnType::Continuous)
-        //     // .withName([s](int i){ return xpress::format("s%d_o(%d)", s, i); })
-        //     .toArray();
-        
-        // /* CONSTRAINTS */
-        // for (int i=0; i<NR_STATIONS; i++) {
-        //     // u_i[i] >= std::max(0.0, d_s_i[s][i] - masterSol_x_t[i]);
-        //     // o_i[i] >= std::max(0.0, -d_s_i[s][i] - (b_i[i] - masterSol_x_t[i]));
-        //     h_s_j[s][0*NR_STATIONS+i]      = -d_s_i[s][i];
-        //     h_s_j[s][1*NR_STATIONS+i]      = d_s_i[s][i];
-        //     h_s_j[s][2*NR_STATIONS+i]      = -d_s_i[s][i] - b_i[i];
-        //     T_s_j_i[s][0*NR_STATIONS+i][i] = 0.0;
-        //     T_s_j_i[s][1*NR_STATIONS+i][i] = 1.0;
-        //     T_s_j_i[s][2*NR_STATIONS+i][i] = -1.0;
-        // }
-        
-        // std::vector<LinExpression> end_of_day_net_recourse_flows(NR_STATIONS);
-
-        // for (int i=0; i<NR_STATIONS; i++) {
-        //     LinExpression net_recourse_flow = LinExpression::create();
-        //     for (int j=0; j<NR_STATIONS; j++) {
-        //         net_recourse_flow.addTerm(y[i][j], 1).addTerm(y[j][i], -1);
-        //     }
-        //     end_of_day_net_recourse_flows[i] = net_recourse_flow;
-        //     // during_day_net_customer_flows[i] = -( d_s_i[s][i] - u[i] + o[i] );
-        // }
-
-        // subProb_s.addConstraints(NR_STATIONS, [&](int j) {
-        //     return (end_of_day_net_recourse_flows[j] == u[j] - o[j] + h_s_j[s][j] - myScalarProduct(T_s_j_i[s][j], masterSol_x_t));
-        //             // .setName(xpress::format("FlowCons_S%d", j));
-        // });
-        // // u_i[i] >= std::max(0.0, d_s_i[s][i] - masterSol_x_t[i]);
-        // subProb_s.addConstraints(NR_STATIONS, [&](int j) {
-        //     return (u[j] >= h_s_j[s][1*NR_STATIONS+j] - myScalarProduct(T_s_j_i[s][1*NR_STATIONS+j], masterSol_x_t));
-        //             // .setName(xpress::format("underflow_%d", j));
-        // });
-        // // o_i[i] >= std::max(0.0, -d_s_i[s][i] - (b_i[i] - masterSol_x_t[i]));
-        // subProb_s.addConstraints(NR_STATIONS, [&](int j) {
-        //     return (o[j] >= h_s_j[s][2*NR_STATIONS+j] - myScalarProduct(T_s_j_i[s][2*NR_STATIONS+j], masterSol_x_t));
-        //             // .setName(xpress::format("overflow_%d", j));
-        // });
-
-        // // std::cout << "\tBuilt sub problem constraints" << std::endl;
-
-        // /* OBJECTIVE */
-        // LinExpression objective = LinExpression::create();
-        // for (int i=0; i<NR_STATIONS; i++) {
-        //     for (int j=0; j<NR_STATIONS; j++) {
-        //         objective.addTerm(c_ij[i][j], y[i][j]);
-        //     }
-        //     objective.addTerm(q_i_1[i], u[i]);
-        //     objective.addTerm(q_i_2[i], o[i]);
-        // }
-        // subProb_s.setObjective(objective, xpress::ObjSense::Minimize);
-
-        // std::cout << "\tCreated Sub Problem" << std::endl;
-
-        /* INSPECT, SOLVE & PRINT */
-        // subProb_s.writeProb(xpress::format("SubProb_%d.lp", s), "l");
-
-        XpressProblem& subProb_s = *subProb_solver.subProbPtr;
-
-        subProb_s.optimize();
-
-        // Check the solution status
-        if (subProb_s.getSolStatus() != SolStatus::Optimal && subProb_s.getSolStatus() != SolStatus::Feasible) {
-            std::ostringstream oss; oss << subProb_s.getSolStatus(); // Convert xpress::SolStatus to String
-            throw std::runtime_error("Optimization failed with status " + oss.str());
-        }
-
-        // Retrieve the solution values
-        if (NR_SCENARIOS <= 5)
-            std::cout << "\tScenario " << s << ": Sub Problem Solved" << std::endl;
-
-        if (verbose) {
-            std::cout << "\t\tObjective value = " << subProb_s.getObjVal() << std::endl;
-            // std::vector<double> solutionValues = subProb_s.getSolution();
-
-            // double nrBikesMovedEndOfDay = 0.0, nrUnmetDemand = 0.0, nrOverflow = 0.0;
-            // for (int i=0; i<NR_STATIONS; i++) {
-            //     for (int j=0; j<NR_STATIONS; j++) {
-            //         nrBikesMovedEndOfDay += y[i][j].getValue(solutionValues);
-            //     }
-            //     nrUnmetDemand += u[i].getValue(solutionValues);
-            //     nrOverflow += o[i].getValue(solutionValues);
-            // }
-            // std::cout << "\t\tnrBikesMovedEndOfDay = " << nrBikesMovedEndOfDay << std::endl;
-            // std::cout << "\t\tnrUnmetDemand = " << nrUnmetDemand << std::endl;
-            // std::cout << "\t\tnrOverflow = " << nrOverflow << std::endl;
-
-            // for (int i=0; i<NR_STATIONS; i++) {
-            //     for (int j=0; j<NR_STATIONS; j++) {
-            //         std::cout << "\t\t" << y[i][j].getName() << " = " << y[i][j].getValue(solutionValues) << std::endl;
-            //     }
-            // }
-            // for (int i=0; i<NR_STATIONS; i++) {
-            //     std::cout << "\t\t" << u[i].getName() << " = " << u[i].getValue(solutionValues) << std::endl;
-            // }
-            // for (int i=0; i<NR_STATIONS; i++) {
-            //     std::cout << "\t\t" << o[i].getName() << " = " << o[i].getValue(solutionValues) << std::endl;
-            // }
-        }
-
-        pi_s_j[s] = subProb_s.getDuals();
+        // Get dual values
+        pi_s_j[s] = subProbSolver.subProbPtr->getDuals();
         if (pi_s_j[s].size() != NR_2ND_STAGE_CONSTRAINTS) throw std::invalid_argument("Disable presolve please, thanks");
 
         if (verbose) {
             std::cout << "\t\tpi_s" << s << " = ";
-            std::vector<double> duals = subProb_s.getDuals();
-            for (int i=0; i<duals.size(); i++) std::cout << duals[i] << ",  ";
+            for (int i=0; i<pi_s_j[s].size(); i++) std::cout << pi_s_j[s][i] << ",  ";
             std::cout << std::endl << std::endl;
         }
     }
-    std::cout << "\tSolved All Sub Problem" << std::endl;
+    std::cout << "\tSolved All Sub Problems" << std::endl;
 
     for (int s=0; s<NR_SCENARIOS; s++) {
         e_t += p_s[s] * myScalarProduct(pi_s_j[s], h_s_j[s]);
@@ -490,6 +376,12 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
             E_t[i] += p_s[s] * result[i];
         }
     }
+
+    double w_t = e_t - myScalarProduct(E_t, masterSol_x_t);
+    double epsilon = 0.01;
+    double gap = (w_t - masterSol_theta_t)/std::abs(masterSol_theta_t);
+
+    // Print some information
     std::cout << "\tGenerated Cut" << std::endl;
     if (verbose) {
         std::cout << "\t\te_" << iter << " = " << e_t << std::endl;
@@ -499,12 +391,9 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
     }
     std::cout  << std::endl;
 
-    double w_t = e_t - myScalarProduct(E_t, masterSol_x_t);
+    // Print some more information
     std::cout << "\tw_" << iter << " = " << w_t << std::endl;
     std::cout << "\ttheta = " << masterSol_theta_t << std::endl;
-
-    double epsilon = 0.01;
-    double gap = (w_t - masterSol_theta_t)/std::abs(masterSol_theta_t);
     std::cout << "\tw_" << iter << " <= theta is " << (w_t <= masterSol_theta_t ? "True" : "False") << std::endl;
     std::cout << "\tgap_" << iter << " = " << gap << " <= eps is " << (gap <= epsilon ? "True" : "False") << std::endl;
     std::cout << std::endl;
@@ -514,12 +403,15 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
 
 
 
+
+
+// DONE: Solve subproblems in an array for next iteration and modify in the next iteration
+//          - YES (one problem per scenario, same |S| problems for each iteration)
+
 // TODO: Callbacks to generate optimality cuts for each integer feasible solution:
 //          - dont use `addConstraint()` in the callback  (this resets solver state)
 //          - instead, use `addCut()` in the callback (because why not, decrease search space whenever you can), 
 //            and also add to constraint pool for `addConstraints()` later
-// TODO: Solve subproblems in an array for next iteration and modify in the next iteration
-//          - YES (one problem per scenario, same |S| problems for each iteration)
 // TODO: Warm start for subproblems
 //          - saving the basis of a node deep into the branch-and-bound tree, does not help very much
 //              --> because it was found after adding a lot of constraints
@@ -540,26 +432,23 @@ BRP_SubProblem::BRP_SubProblem(TwoStage_LShapedMethod* masterProbSolver, std::un
         this->s = subProbIndex;
 }
 
-
 void BRP_SubProblem::makeInitialSubProbFormulation() {
-    // subProb_s.callbacks->addMessageCallback(XpressProblem::CallbackAPI::console);
-
-    // subProbPtr->addVariables(20, 20).toArray();
+    // subProbPtr->callbacks->addMessageCallback(XpressProblem::CallbackAPI::console);
 
     /* VARIABLES */
-    this->y = subProbPtr->addVariables(50, 50)
+    this->y = subProbPtr->addVariables(NR_STATIONS, NR_STATIONS)
         .withType(ColumnType::Continuous)
-        // .withName([s](int i, int j){ return xpress::format("s%d_y(%d,%d)", s, i, j); })
+        .withName([&](int i, int j){ return xpress::format("s%d_y(%d,%d)", s, i, j); })
         .toArray();
 
     this->u = subProbPtr->addVariables(NR_STATIONS)
         .withType(ColumnType::Continuous)
-        // .withName([s](int i){ return xpress::format("s%d_u(%d)", s, i); })
+        .withName([&](int i){ return xpress::format("s%d_u(%d)", s, i); })
         .toArray();
 
     this->o = subProbPtr->addVariables(NR_STATIONS)
         .withType(ColumnType::Continuous)
-        // .withName([s](int i){ return xpress::format("s%d_o(%d)", s, i); })
+        .withName([&](int i){ return xpress::format("s%d_o(%d)", s, i); })
         .toArray();
     
     /* CONSTRAINTS */
@@ -586,20 +475,23 @@ void BRP_SubProblem::makeInitialSubProbFormulation() {
     }
 
     subProbPtr->addConstraints(NR_STATIONS, [&](int j) {
-        return (end_of_day_net_recourse_flows[j] == u[j] - o[j] + masterProbSolver->h_s_j[s][j]
-                 - myScalarProduct(masterProbSolver->T_s_j_i[s][0*NR_STATIONS+j], masterProbSolver->masterSol_x_t));
+        int offset = 0*NR_STATIONS;
+        return (end_of_day_net_recourse_flows[j] == u[j] - o[j] + masterProbSolver->h_s_j[s][offset+j]
+                 - myScalarProduct(masterProbSolver->T_s_j_i[s][offset+j], masterProbSolver->masterSol_x_t));
                 // .setName(xpress::format("FlowCons_S%d", j));
     });
     // u_i[i] >= std::max(0.0, d_s_i[s][i] - masterSol_x_t[i]);
     subProbPtr->addConstraints(NR_STATIONS, [&](int j) {
-        return (u[j] >= masterProbSolver->h_s_j[s][1*NR_STATIONS+j]
-                 - myScalarProduct(masterProbSolver->T_s_j_i[s][1*NR_STATIONS+j], masterProbSolver->masterSol_x_t));
+        int offset = 1*NR_STATIONS;
+        return (u[j] >= masterProbSolver->h_s_j[s][offset+j]
+                 - myScalarProduct(masterProbSolver->T_s_j_i[s][offset+j], masterProbSolver->masterSol_x_t));
                 // .setName(xpress::format("underflow_%d", j));
     });
     // o_i[i] >= std::max(0.0, -d_s_i[s][i] - (b_i[i] - masterSol_x_t[i]));
     subProbPtr->addConstraints(NR_STATIONS, [&](int j) {
-        return (o[j] >= masterProbSolver->h_s_j[s][2*NR_STATIONS+j]
-                 - myScalarProduct(masterProbSolver->T_s_j_i[s][2*NR_STATIONS+j], masterProbSolver->masterSol_x_t));
+        int offset = 2*NR_STATIONS;
+        return (o[j] >= masterProbSolver->h_s_j[s][offset+j]
+                 - myScalarProduct(masterProbSolver->T_s_j_i[s][offset+j], masterProbSolver->masterSol_x_t));
                 // .setName(xpress::format("overflow_%d", j));
     });
 
@@ -617,7 +509,78 @@ void BRP_SubProblem::makeInitialSubProbFormulation() {
     subProbPtr->setObjective(objective, xpress::ObjSense::Minimize);
 }
 
+std::vector<double> BRP_SubProblem::computeNewRightHandSides() {
+    std::vector<double> rhsCoeffs(masterProbSolver->NR_2ND_STAGE_CONSTRAINTS);
 
+    for (int j=0; j<masterProbSolver->NR_2ND_STAGE_CONSTRAINTS; j++) {
+        rhsCoeffs[j] = masterProbSolver->h_s_j[s][j] - myScalarProduct(masterProbSolver->T_s_j_i[s][j], masterProbSolver->masterSol_x_t);
+    }
+    return rhsCoeffs;
+}
+
+void BRP_SubProblem::updateFirstStageVariableValues() {
+    // If there are new values for the first-stage decision variables x,
+    // we have to update the right-hand sides of some of the constraints in the subproblem
+
+    // Some dimension checking
+    int nrConstraints1 = subProbPtr->getOriginalRows();
+    int nrConstraints2 = subProbPtr->getRows();
+    if (nrConstraints1 != nrConstraints2) throw std::invalid_argument("Disable presolve please, thanks");
+    if (nrConstraints1 != masterProbSolver->NR_2ND_STAGE_CONSTRAINTS) throw std::invalid_argument("Disable presolve please, thanks");
+
+    // New right hand side values based on new values of x
+    std::vector<double> newRightHandSides = computeNewRightHandSides();
+
+    // Make a vector with integer values from 0 to newRightHandSides.size()-1
+    std::vector<int> newRightHandSidesIndices(newRightHandSides.size());
+    std::iota(newRightHandSidesIndices.begin(), newRightHandSidesIndices.end(), 0);
+
+    subProbPtr->chgRhs(newRightHandSides.size(), newRightHandSidesIndices, newRightHandSides);
+}
+
+void BRP_SubProblem::solveSubProblem() {
+    // subProbPtr->writeProb(xpress::format("SubProb_%d.%d.lp", iter, s), "l");
+
+    subProbPtr->optimize();
+
+    // Check the solution status
+    if (subProbPtr->getSolStatus() != SolStatus::Optimal && subProbPtr->getSolStatus() != SolStatus::Feasible) {
+        std::ostringstream oss; oss << subProbPtr->getSolStatus(); // Convert xpress::SolStatus to String
+        throw std::runtime_error("Optimization of subProblem " + std::to_string(s) + " in iteration " +
+                                 std::to_string(masterProbSolver->iter) + " failed with status " + oss.str());
+    }
+
+    // Optionally print some information
+    if (masterProbSolver->verbose) {
+        std::cout << "\tScenario " << s << ": Sub Problem Solved" << std::endl;
+        std::cout << "\t\tObjective value = " << subProbPtr->getObjVal() << std::endl;
+        std::vector<double> solutionValues = subProbPtr->getSolution();
+
+        double nrBikesMovedEndOfDay = 0.0, nrUnmetDemand = 0.0, nrOverflow = 0.0;
+        for (int i=0; i<NR_STATIONS; i++) {
+            for (int j=0; j<NR_STATIONS; j++) {
+                nrBikesMovedEndOfDay += y[i][j].getValue(solutionValues);
+            }
+            nrUnmetDemand += u[i].getValue(solutionValues);
+            nrOverflow += o[i].getValue(solutionValues);
+        }
+        std::cout << "\t\tnrBikesMovedEndOfDay = " << nrBikesMovedEndOfDay << std::endl;
+        std::cout << "\t\tnrUnmetDemand = " << nrUnmetDemand << std::endl;
+        std::cout << "\t\tnrOverflow = " << nrOverflow << std::endl;
+
+        // for (int i=0; i<NR_STATIONS; i++) {
+        //     for (int j=0; j<NR_STATIONS; j++) {
+        //         std::cout << "\t\t" << y[i][j].getName() << " = " << y[i][j].getValue(solutionValues) << std::endl;
+        //     }
+        // }
+        // for (int i=0; i<NR_STATIONS; i++) {
+        //     std::cout << "\t\t" << u[i].getName() << " = " << u[i].getValue(solutionValues) << std::endl;
+        // }
+        // for (int i=0; i<NR_STATIONS; i++) {
+        //     std::cout << "\t\t" << o[i].getName() << " = " << o[i].getValue(solutionValues) << std::endl;
+        // }
+    }
+}
 
 
 
