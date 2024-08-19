@@ -35,6 +35,7 @@
 *.csv
 *.xlsx
 *.txt
+*.png
 
 # Xpress files
 *.ilk
@@ -47,3 +48,5 @@
 
 # Old files
 /old/*
+/old_versions/*
+/final_versions/*

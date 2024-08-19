@@ -13,20 +13,29 @@ import itertools
 import numpy as np
 import pandas as pd
 from pprint import pprint
+from scipy.spatial.distance import pdist, squareform
 
-pd.set_option('display.max_columns', None)
-pd.set_option('display.width', 1000)
+pd.set_option('display.max_columns', 10)
+pd.set_option('display.width', 150)
+
+FILENO = "394"
 
 def main():
+    nr_stations = None
+
     stations = parse_station_location_data()
-    nr_outgoing, nr_incoming = parse_trip_data(stations)
+    print(stations.columns)
+    distance_matrix = calculate_distance_matrix(stations)
+    print(distance_matrix.head())
+    sys.exit()
+    nr_outgoing, nr_incoming = parse_trip_data(stations, nr_stations)
+    parse_trip_data_into_matrix(stations, nr_stations)
 
     net_demand_df = get_net_bike_demands(nr_outgoing.copy(), nr_incoming.copy())
-    dump_trip_df_to_csv(net_demand_df)
-    print(net_demand_df.dtypes)
+    dump_trip_df_to_csv(net_demand_df, nr_stations)
 
     stations = drop_unneeded_station_info(stations, nr_outgoing)
-    dump_station_info_to_csv(stations)
+    dump_station_info_to_csv(stations, nr_stations)
 
 
     stations1 = set(list(nr_outgoing[["Start station number", "Start station"]].drop_duplicates().itertuples(index=False, name=None)))
@@ -41,6 +50,30 @@ def main():
     assert len(stations1.symmetric_difference(stations2)) == 0, "Sets must be identical"
 
 
+
+def haversine(lat1, lon1, lat2, lon2):
+    R = 6371.0  # Radius of Earth in kilometers
+    lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
+    
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    
+    a = np.sin(dlat/2.0)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2.0)**2
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+    
+    return R * c
+
+def calculate_distance_matrix(stations):
+    coords = stations[['lat', 'long']].values.astype(float)
+    dist_matrix = squareform(pdist(coords, lambda u, v: haversine(u[0], u[1], v[0], v[1])))
+    print(np.min(dist_matrix[dist_matrix>0.0]))
+    dist_matrix = dist_matrix / np.min(dist_matrix[dist_matrix>0.0]) / 10
+    return pd.DataFrame(dist_matrix, index=stations['name'], columns=stations['name'])
+
+def extract_submatrix(distance_matrix, station_names):
+    return distance_matrix.loc[station_names, station_names]
+
+
 def drop_unneeded_station_info(stations, nr_outgoing):
     stations1 = set(list(nr_outgoing[["Start station number", "Start station"]].drop_duplicates().itertuples(index=False, name=None)))
     stations2 = set(list(stations[["terminalName", "name"]].itertuples(index=False, name=None)))
@@ -51,21 +84,32 @@ def drop_unneeded_station_info(stations, nr_outgoing):
     return stations
 
 
-def dump_station_info_to_csv(stations):
+def dump_station_info_to_csv(stations, nr_stations):
     stations = stations.rename(columns={"terminalName": "station number"})
     stations = stations[['station number', 'nbDocks']]
     stations = stations.sort_values(["station number"], ignore_index=True)
     print("Dumped:", stations.shape)
-    stations.to_csv('Station_Info.csv', sep=';', index=False)
+    
+    filename = 'Station_Info.csv'
+    if nr_stations is not None:
+        filename = 'Station_Info_size%d.csv'%nr_stations
+    else:
+        filename = 'Station_Info.csv'
+    stations.to_csv("./data/" + filename, sep=';', index=False)
 
 
-def dump_trip_df_to_csv(net_demand_df):
+def dump_trip_df_to_csv(net_demand_df, nr_stations):
     net_demand_df = net_demand_df.drop(columns=["station"])
     net_demand_df['date'] = net_demand_df['date'].astype(str)
     net_demand_df = net_demand_df.sort_values(["date", "station number"], ignore_index=True)
     print("Dumped:", net_demand_df.shape)
 
-    net_demand_df.to_csv('394_Net_Data.csv', sep=';', index=False)
+    filename = '%s_Net_Data.csv'%FILENO
+    if nr_stations is not None:
+        filename = '%s_Net_Data_size%d.csv'%(FILENO, nr_stations)
+    else:
+        filename = '%s_Net_Data.csv'%FILENO
+    net_demand_df.to_csv("./data/" + filename, sep=';', index=False)
 
 
 def get_net_bike_demands(nr_outgoing, nr_incoming):
@@ -85,8 +129,6 @@ def get_net_bike_demands(nr_outgoing, nr_incoming):
     net_demand_df = merged_df[['date', 'station number', 'station', 'CLASSIC_net', 'PBSC_EBIKE_net']]
 
     # Sanity check:
-    print("Net demand:")
-    print(net_demand_df[['date', 'CLASSIC_net', 'PBSC_EBIKE_net']])
     assert np.all(net_demand_df.groupby("date")['CLASSIC_net'].sum() == 0)
     assert np.all(net_demand_df.groupby("date")['PBSC_EBIKE_net'].sum() == 0)
     return net_demand_df
@@ -122,15 +164,20 @@ def parse_station_location_data():
 
     # print("Nr stations:", len(stations))
     df = pd.DataFrame(stations)
+    df.to_csv("./data/stations_all_info.csv", sep=',', index=False)
     return df
 
 
-def parse_trip_data(stations):
-    filename = "394JourneyDataExtract15Apr2024-30Apr2024.csv"
-    folder = "./"
+def parse_trip_data_into_matrix(stations, nr_stations):
+    filename = "%d_Data.csv"
+    folder = "./data"
 
     # Read data from csv into DataFrame
-    data = pd.read_csv(os.path.join(folder, filename), parse_dates=["Start date", "End date"], dtype=str).dropna()
+    data = []
+    for i in range(391, 395):
+        new_data = pd.read_csv(os.path.join(folder, filename%i), parse_dates=["Start date", "End date"], dtype=str).dropna()
+        data.append(new_data)
+    data = pd.concat(data)
 
     print("Initial shape:", data.shape)
 
@@ -152,6 +199,96 @@ def parse_trip_data(stations):
 
     # Drop rows where trips either start or end at stations we do not know the capacity of
     data = drop_removed_stations_from_trips(data, stations)
+
+    if nr_stations is not None:
+        all_stations = get_all_stations_info(data)
+        station_names = sorted(list(set(list(all_stations.itertuples(index=False, name=None)))))
+        stations_to_drop = station_names[nr_stations:]
+        data = drop_all_trips_with_stations(data, stations_to_drop)
+
+    # Filter to include only "CLASSIC" bike model trips
+    classic_trips = data[data['Bike model'] == 'CLASSIC']
+    # # Only do one date 
+    # classic_trips = data[data['Start date'] == data['Start date'].iloc[0]]
+    
+    # Group by 'Start date', 'Start station number', 'Start station', 'End station number', and 'End station'
+    grouped = classic_trips.groupby(['Start date', 'Start station number', 'Start station', 'End station number', 'End station']).size().reset_index(name='count')
+    
+    # Get unique stations
+    stations = list(set(grouped['Start station number']).union(set(grouped['End station number'])))
+    stations.sort()
+    
+    # Create a dictionary to map stations to their indices
+    station_to_index = {station: idx for idx, station in enumerate(stations)}
+    
+    # Initialize the matrix
+    n_stations = len(stations)
+    matrix = {date: np.zeros((n_stations, n_stations), dtype=int) for date in grouped['Start date'].unique()}
+    
+    # Populate the matrix
+    for _, row in grouped.iterrows():
+        date = row['Start date']
+        start_idx = station_to_index[row['Start station number']]
+        end_idx = station_to_index[row['End station number']]
+        matrix[date][start_idx, end_idx] += row['count']
+    
+    for date, data in matrix.items():
+        suffix = "" if nr_stations is None else "size%d_"%nr_stations
+        date = date.strftime('%Y_%m_%d')
+        pd.DataFrame(data).to_csv("./data/" + '%s_matrix_data_%s%s.csv'%(FILENO,suffix,date), sep=';', index=False)
+        # break
+
+    # return matrix
+
+
+def parse_trip_data(stations, nr_stations=None):
+    filename = "%d_Data.csv"
+    folder = "./data"
+
+    # Read data from csv into DataFrame
+    data = []
+    for i in range(391, 395):
+        new_data = pd.read_csv(os.path.join(folder, filename%i), parse_dates=["Start date", "End date"], dtype=str).dropna()
+        data.append(new_data)
+    data = pd.concat(data)
+
+    print("Initial shape:", data.shape)
+
+    # Drop times from datetimes to obtain dates
+    data["Start datetime"] = data["Start date"]
+    data["End datetime"] = data["End date"]
+    data["Start date"] = data["Start date"].dt.date
+    data["End date"] = data["End date"].dt.date
+
+    # Filter on valid dates
+    print("Dropping rows with different dates:", end=' ')
+    valid_dates = get_valid_dates(data)
+    data = data[data['Start date'].isin(valid_dates)]
+    data = data[data['End date'].isin(valid_dates)]
+
+    # Drop rows where trips end on a different day than when they started
+    data = data[data['Start date'] == data['End date']]
+    print(data.shape)
+
+    # Drop rows where trips either start or end at stations we do not know the capacity of
+    data = drop_removed_stations_from_trips(data, stations)
+
+    if nr_stations is not None:
+        if nr_stations == 100 and FILENO == "391":
+            data = data[data["Start station"] != 'Disraeli Road, Putney']
+            data = data[data["End station"] != 'Disraeli Road, Putney']
+        if nr_stations == 100 and FILENO == "394":
+            data = data[data["Start station"] != 'Victoria Park Road, Hackney Central']
+            data = data[data["End station"] != 'Victoria Park Road, Hackney Central']
+        all_stations = get_all_stations_info(data)
+        station_names = sorted(list(set(list(all_stations.itertuples(index=False, name=None)))))
+        stations_to_drop = station_names[nr_stations:]
+        data = drop_all_trips_with_stations(data, stations_to_drop)
+        
+        all_stations2 = get_all_stations_info(data)
+        station_names2 = sorted(list(set(list(all_stations2.itertuples(index=False, name=None)))))
+        print(len(station_names2), "stations remaining")
+        # print(station_names2.symmetric_difference((set(station_names[:nr_stations]))))
 
     # Count types of bikes incoming / outgoing per day per station
     nr_outgoing = data.groupby(["Start date", "Start station number", "Start station"])["Bike model"].value_counts().unstack(fill_value=0)
@@ -177,7 +314,9 @@ def drop_removed_stations_from_trips(data, stations):
     station_names_to_drop = station_nr_to_name_mapping[~station_nr_to_name_mapping["Station"].isin(stations["name"])]
     station_names_to_drop = stations1 - stations2
     print("Dropping trips involving", len(station_names_to_drop), "stations: ", end='')
+    return drop_all_trips_with_stations(data, station_names_to_drop)
 
+def drop_all_trips_with_stations(data, station_names_to_drop):
     def drop_mode(mode):
         keys_df = pd.DataFrame(index=data.index)
         keys_df['Keys'] = list(zip(data["%s station number"%mode], data["%s station"%mode]))

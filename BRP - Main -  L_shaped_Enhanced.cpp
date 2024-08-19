@@ -8,6 +8,32 @@
 using namespace xpress;
 using namespace xpress::objects;
 
+
+using TimeDataType = std::chrono::time_point<std::chrono::high_resolution_clock>;
+void saveTimeToInfoDf(DataFrame& infoDf, TimeDataType start, TimeDataType end, std::string columnName, int NR_STATIONS, int NR_SCENARIOS) {
+    long long duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    std::cout << "'" << columnName << "' took " << duration << "ms (" << duration/1000.0 << "s)" << std::endl;
+
+    if (!infoDf.hasColumnName(columnName)) {
+        infoDf.addColumn(columnName, std::vector<long long>{duration});
+
+        std::ostringstream fileName;
+        fileName << "./time_data/B=" << NR_STATIONS << "_S=" << NR_SCENARIOS << "_BRP_L_Enhanced_DoubleU.csv";
+        infoDf.toCsv(fileName.str());
+    }
+}
+
+void saveDoubleToInfoDf(DataFrame& infoDf, double value, std::string columnName, int NR_STATIONS, int NR_SCENARIOS) {
+    if (!infoDf.hasColumnName(columnName)) {
+        infoDf.addColumn(columnName, std::vector<double>{value});
+
+        std::ostringstream fileName;
+        fileName << "./time_data/B=" << NR_STATIONS << "_S=" << NR_SCENARIOS << "_BRP_L_Enhanced_DoubleU.csv";
+        infoDf.toCsv(fileName.str());
+    }
+}
+
+
 double mySum(std::vector<double> a) {
     double ans = 0.0;
     for (double val : a) ans += val;
@@ -127,17 +153,18 @@ public:
     void runLShapedMethod(int NR_BIKES, bool verbose);
     std::vector<Variable>& getFirstStageDecisionVariables();
     double getExpectedSecondStageCost();
+    double getNumberOfIterations() {return iter;};
 
 
 private:
     // First-stage decision variables
     std::vector<Variable> x;
-    // Auxiliary variable in the master problem - necessary for the decomposition
-    Variable theta;
+    // Auxiliary variables in the master problem - necessary for the decomposition
+    std::vector<Variable> theta;
 
     void makeInitialMasterProbFormulation(int NR_BIKES);
     void solveMasterProb(bool solveRelaxation);
-    void addOptimalityCutToMasterProb(std::vector<double>& E_t, double& e_t);
+    void addOptimalityCutToMasterProb(int s, std::vector<double>& E_t, double& e_t);
     bool generateOptimalityCut(std::vector<double>& E_t, double& e_t);
 
     int iter;
@@ -233,11 +260,20 @@ void TwoStage_LShapedMethod::runLShapedMethod(int NR_BIKES, bool verbose) {
 
     /* ################## Iteration 0: Model all the Sub Problems ###################### */
     for (int s=0; s<NR_SCENARIOS; s++) {
+        if (NR_STATIONS > 200) std::cout << "Initializing subproblem " << s << std::endl;
         savedSubproblems[s].makeInitialSubProbFormulation();
     }
 
-    // ################## Iteration 0: Start of Solving Sub Problems ######################
+    /* ################## Iteration 0: Add new Variable to Master Problem ###################### */
+    this->theta = masterProb.addVariables(NR_SCENARIOS)
+        // .withLB(XPRS_MINUSINFINITY).withUB(XPRS_PLUSINFINITY)
+        .withType(ColumnType::Continuous).toArray();
+    // Add theta to the objective, with coefficient 1.0
+    for (int s=0; s<NR_SCENARIOS; s++) {
+        theta[s].chgObj(1.0);
+    }
 
+    // ################## Iteration 0: Start of Solving Sub Problems ######################
     double e_t = 0.0;
     std::vector<double> E_t(NR_1ST_STAGE_VARIABLES, 0.0);
     bool masterIsOptimal = this->generateOptimalityCut(E_t, e_t);
@@ -247,10 +283,6 @@ void TwoStage_LShapedMethod::runLShapedMethod(int NR_BIKES, bool verbose) {
         return;
     }
 
-    this->theta = masterProb.addVariable(XPRS_MINUSINFINITY, XPRS_PLUSINFINITY, ColumnType::Continuous, "theta");
-    // Add theta to the objective, with coefficient 1.0
-    theta.chgObj(1.0);
-
     // ################## Iteration 0: End of Solving Sub Problems ######################
     // ################## Perform the Rest of the Iterations ######################
 
@@ -258,7 +290,7 @@ void TwoStage_LShapedMethod::runLShapedMethod(int NR_BIKES, bool verbose) {
         iter++;
         std::cout << "STARTING ITERATION " << iter << std::endl;
 
-        addOptimalityCutToMasterProb(E_t, e_t);
+        // addOptimalityCutToMasterProb(E_t, e_t);
         solveMasterProb(true);
 
         e_t = 0.0;
@@ -278,7 +310,7 @@ std::vector<Variable>& TwoStage_LShapedMethod::getFirstStageDecisionVariables() 
 }
 
 double TwoStage_LShapedMethod::getExpectedSecondStageCost() {
-    return masterProb.getSolution(theta);
+    return mySum(masterProb.getSolution(theta));
 }
 
 void TwoStage_LShapedMethod::makeInitialMasterProbFormulation(int NR_BIKES) {
@@ -324,7 +356,7 @@ void TwoStage_LShapedMethod::solveMasterProb(bool solveRelaxation) {
     if (masterProb.getOriginalCols() == x.size()) {
         this->masterSol_theta_t = XPRS_MINUSINFINITY;
     } else {
-        this->masterSol_theta_t = masterProb.getSolution(this->theta);
+        this->masterSol_theta_t = mySum(masterProb.getSolution(this->theta));
     }
 
     /* PRINT */
@@ -337,12 +369,14 @@ void TwoStage_LShapedMethod::solveMasterProb(bool solveRelaxation) {
     }
 }
 
-void TwoStage_LShapedMethod::addOptimalityCutToMasterProb(std::vector<double>& E_t, double& e_t) {
-    masterProb.addConstraint(Utils::scalarProduct(x, E_t) + theta >= e_t);
+void TwoStage_LShapedMethod::addOptimalityCutToMasterProb(int s, std::vector<double>& E_t, double& e_t) {
+    if (E_t.size() != x.size()) throw std::invalid_argument("Vectors E_t and x have different lengths");
 
-    std::cout << "\tAdding constraint" << std::endl;
+    masterProb.addConstraint(Utils::scalarProduct(x, E_t) + theta[s] >= e_t);
+
+    // std::cout << "\tAdding constraint" << std::endl;
     if (verbose) {
-        std::cout << "\t\t" << (Utils::scalarProduct(x, E_t) + theta).toString() << " >= " << e_t << std::endl << std::endl;
+        std::cout << "\t\t" << (Utils::scalarProduct(x, E_t) + theta[s]).toString() << " >= " << e_t << std::endl << std::endl;
     }
 }
 
@@ -366,32 +400,45 @@ bool TwoStage_LShapedMethod::generateOptimalityCut(std::vector<double>& E_t, dou
             for (int i=0; i<pi_s_j[s].size(); i++) std::cout << pi_s_j[s][i] << ",  ";
             std::cout << std::endl << std::endl;
         }
+
+
     }
     std::cout << "\tSolved All Sub Problem" << std::endl;
 
+    bool isOptimal = true;
     for (int s=0; s<NR_SCENARIOS; s++) {
-        e_t += p_s[s] * myScalarProduct(pi_s_j[s], h_s_j[s]);
+        double e_t_s = p_s[s] * myScalarProduct(pi_s_j[s], h_s_j[s]);
+
         std::vector<double> result = myMultiplyMatrices(std::vector<std::vector<double>>{pi_s_j[s]}, T_s_j_i[s])[0];
+        std::vector<double> E_t_s = myElementWiseMultiplication(p_s[s], result);
         // E_t = myElementWiseAddition(E_t, myElementWiseMultiplication(p_s[s], result));
-        for (int i=0 ; i<NR_1ST_STAGE_VARIABLES; i++) {
-            E_t[i] += p_s[s] * result[i];
-        }
+        // for (int i=0 ; i<NR_1ST_STAGE_VARIABLES; i++) {
+        //     E_t[i] += p_s[s] * result[i];
+        // }
+        addOptimalityCutToMasterProb(s, E_t_s, e_t_s);
+
+        E_t = myElementWiseAddition(E_t, E_t_s);
+        e_t += e_t_s;//p_s[s] * myScalarProduct(pi_s_j[s], h_s_j[s]);
     }
+    // masterProb.addConstraint(Utils::scalarProduct(x, E_t) + Utils::sum(theta) >= e_t);
+
+    double w_t = e_t - myScalarProduct(E_t, masterSol_x_t);
+    double epsilon = 0.01;
+    double gap = (w_t - masterSol_theta_t)/std::abs(masterSol_theta_t);
+
+    // Print some information
     std::cout << "\tGenerated Cut" << std::endl;
     if (verbose) {
         std::cout << "\t\te_" << iter << " = " << e_t << std::endl;
         std::cout << "\t\tE_" << iter << " = ";
         for (int i=0; i<NR_1ST_STAGE_VARIABLES; i++) std::cout << E_t[i] << ",  ";
-        std::cout << std::endl << std::endl;
+        std::cout << std::endl;
     }
     std::cout  << std::endl;
 
-    double w_t = e_t - myScalarProduct(E_t, masterSol_x_t);
+    // Print some more information
     std::cout << "\tw_" << iter << " = " << w_t << std::endl;
     std::cout << "\ttheta = " << masterSol_theta_t << std::endl;
-
-    double epsilon = 0.01;
-    double gap = (w_t - masterSol_theta_t)/std::abs(masterSol_theta_t);
     std::cout << "\tw_" << iter << " <= theta is " << (w_t <= masterSol_theta_t ? "True" : "False") << std::endl;
     std::cout << "\tgap_" << iter << " = " << gap << " <= eps is " << (gap <= epsilon ? "True" : "False") << std::endl;
     std::cout << std::endl;
@@ -575,17 +622,31 @@ void BRP_SubProblem::solveSubProblem() {
 
 int main() {
     try {
+        std::cout << "Initializing data" << std::endl;
+
+        int nr_stations = -1;
+        int nr_scenarios = 10;
+        std::string tripDataFilename, stationDataFilename;
+        if (nr_stations == -1) {
+            stationDataFilename = "./data/Station_Info.csv";
+        } else {
+            stationDataFilename = "./data/Station_Info_size" + std::to_string(nr_stations) + ".csv";
+        }
+
         // Station information data:
-        std::string stationDataFilename = "./data/Station_Info_size50.csv";
         DataFrame stationData = DataFrame::readCSV(stationDataFilename);
         stationData.convertColumnToDouble("nbDocks");
         std::vector<double> b_i2 = stationData.getColumn<double>("nbDocks");
 
         // Trip information data:
         std::vector<DataFrame> scenarioData;
-        for (int day=15; day<31; day++) {
-            std::string tripDataFilename = "./data/394_matrix_data_size50_2024_04_" + std::to_string(day) + ".csv";
-            DataFrame tripData           = DataFrame::readCSV(tripDataFilename);
+        for (int day=1; day<nr_scenarios+1; day++) {
+            if (nr_stations == -1) {
+                tripDataFilename = "./data/matrix_data/matrix_data_" + std::to_string(day) + ".csv";
+            } else {
+                tripDataFilename = "./data/matrix_data/matrix_data_size" + std::to_string(nr_stations) + "_" + std::to_string(day) + ".csv";
+            }
+            DataFrame tripData = DataFrame::readCSV(tripDataFilename);
             for (std::string colName : tripData.columnNames()) {
                 tripData.convertColumnToDouble(colName);
             }
@@ -606,8 +667,11 @@ int main() {
             }
         }
 
-        std::vector<std::vector<std::vector<double>>> d_s_ij = d_s_ij2;
-        std::vector<double> b_i = b_i2; 
+        std::vector<double> b_i = b_i2;
+        std::vector<std::vector<std::vector<double>>> d_s_ij;
+        for (int i=0; i<nr_scenarios; i++) {
+            d_s_ij.push_back(d_s_ij2[i]);
+        }
 
 
         /******************  Data Initialization ******************************/
@@ -623,7 +687,7 @@ int main() {
 
         int NR_STATIONS = b_i.size();
         int NR_SCENARIOS = d_s_ij.size();
-        int NR_BIKES = mySum(b_i) / 3;
+        int NR_BIKES = mySum(b_i) / 3 * 2;
 
         std::cout << "NR_STATIONS = " << NR_STATIONS << std::endl;
         std::cout << "NR_SCENARIOS = " << NR_SCENARIOS << std::endl;
@@ -641,6 +705,12 @@ int main() {
 
 
         /******************  Problem Creation ******************************/
+        // For keeping track of timings and other info
+        DataFrame infoDf;
+        std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
+        // Count duration of everything
+        start = std::chrono::high_resolution_clock::now();
+
         // Create a problem instance
         XpressProblem masterProb;
         // masterProb.callbacks->addMessageCallback(XpressProblem::CallbackAPI::console);
@@ -653,6 +723,15 @@ int main() {
         /******************  Problem Solving ******************************/
         // Solve the TSSP
         tssp_solver.runLShapedMethod(NR_BIKES, false);
+
+        // End of solving
+        end = std::chrono::high_resolution_clock::now();
+        saveTimeToInfoDf(infoDf, start, end, "Problem Solving (ms)", NR_STATIONS, NR_SCENARIOS);
+        // Save number of iterations
+        saveDoubleToInfoDf(infoDf, double(tssp_solver.getNumberOfIterations()), "NrIterations", NR_STATIONS, NR_SCENARIOS);
+        saveDoubleToInfoDf(infoDf, masterProb.getObjVal(), "ObjectiveVal", NR_STATIONS, NR_SCENARIOS);
+
+        /***************** Showing the Solution **************************/
         std::vector<Variable>& x = tssp_solver.getFirstStageDecisionVariables();
         double theta = tssp_solver.getExpectedSecondStageCost();
 
