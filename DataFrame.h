@@ -21,24 +21,30 @@ public:
                             std::vector<int>
                         >;
 
+    // Functions to add an empty column or add a column with provided values
     template<typename T>
     void addColumn(const std::string& name);
     void addColumn(const std::string& columnName, const ColDataType& columnValues);
 
+    // Functions to get a column by name and check if a column with the given name exists
     template<typename T>
     std::vector<T> getColumn(const std::string& columnName) const;
     ColDataType getColumn(const std::string& columnName) const;
     bool hasColumnName(const std::string& name) const;
 
+    // Function to convert a column of type std::string to a column of type double
     void convertStringColumnToDouble(const std::string& columnName);
 
+    // Function to group the data by the key column
     template<typename T>
-    std::map<T, DataFrame> groupBy(const std::string& columnName) const;
+    std::map<T, DataFrame> groupBy(const std::string& keyColumnName) const;
 
+    // Convert a CSV file to a DataFrame object or other way around
     static DataFrame readCSV(const std::string& filename);
     void toCsv(const std::string& filename) const;
     void toCsv(const std::string& filename, const char delim) const;
 
+    // Some utility functions
     size_t length() const;
     void printColumnSizes() const;
     std::vector<std::string> columnNames() const;
@@ -46,19 +52,11 @@ public:
 private:
     std::map<std::string, ColDataType> columns;
 
+    // Helper function to group the data by the key column
     template<typename KeyType, typename GroupType>
-    void groupByHelper(const std::string colName, const ColDataType& colValues, const std::vector<KeyType>& keyColumn, std::map<KeyType, DataFrame>& groupedData) const;
-
+    void groupByHelper(const std::string colName, const ColDataType& colValues, 
+                       const std::vector<KeyType>& keyColumn, std::map<KeyType, DataFrame>& groupedData) const;
 };
-
-
-
-
-
-
-
-
-
 
 
 // Namespace to hold utility functions for ColDataType
@@ -68,68 +66,43 @@ namespace ColDataTypeUtils {
         return std::visit([](const auto& col) { return col.size(); }, columnVariant);
     }
 
-    // // Function to add an element to the column
-    // template<typename T>
-    // void addElement(DataFrame::ColDataType& data, const T& element) {
-    //     if (std::holds_alternative<std::vector<T>>(data)) {
-    //         std::get<std::vector<T>>(data).push_back(element);
-    //     } else {
-    //         throw std::invalid_argument("Element type does not match column type");
-    //     }
-    // }
-
-    // // Function to remove an element from the column by index
-    // void removeElement(DataFrame::ColDataType& data, size_t index) {
-    //     std::visit([index](auto& col) {
-    //         if (index < col.size()) {
-    //             col.erase(col.begin() + index);
-    //         } else {
-    //             throw std::out_of_range("Index out of range");
-    //         }
-    //     }, data);
-    // }
-
-    // // Function to print the column data
-    // void print(const DataFrame::ColDataType& data) {
-    //     std::visit([](const auto& col) {
-    //         for (const auto& elem : col) {
-    //             std::cout << elem << " ";
-    //         }
-    //         std::cout << std::endl;
-    //     }, data);
-    // }
+    // Function to add an element to the column
+    template<typename T>
+    void addElement(DataFrame::ColDataType& data, const T& element) {
+        if (std::holds_alternative<std::vector<T>>(data)) {
+            std::get<std::vector<T>>(data).push_back(element);
+        } else {
+            throw std::invalid_argument("Element type does not match column type");
+        }
+    }
 }
 
 
-
-
-
-
-
-
-
+// Function to add an empty column to the DataFrame
 template<typename T>
 void DataFrame::addColumn(const std::string& name) {
     columns[name] = std::vector<T>{};
 }
 
-
+// Function to add a column with values to the DataFrame
 void DataFrame::addColumn(const std::string& name, const ColDataType& columnValues) {
     columns[name] = columnValues;
 }
 
-
+// Function to get the number of rows in the DataFrame
 size_t DataFrame::length() const {
     if (columns.empty()) return 0;
     return ColDataTypeUtils::size(columns.begin()->second);
 }
 
+// Function to print the sizes of all columns in the DataFrame
 void DataFrame::printColumnSizes() const {
     for (const auto& col : columns) {
         std::cout << "\t" << col.first << ": " << ColDataTypeUtils::size(col.second) << std::endl;
     }
 }
 
+// Function to get the names of all columns in the DataFrame
 std::vector<std::string> DataFrame::columnNames() const {
     std::vector<std::string> keys;
     for (const auto& col : columns) {
@@ -138,6 +111,7 @@ std::vector<std::string> DataFrame::columnNames() const {
     return keys;
 }
 
+// Function to check if a column with the given name exists in the DataFrame
 bool DataFrame::hasColumnName(const std::string& name) const {
     auto it = columns.find(name);
     if (it != columns.end()) {
@@ -146,6 +120,7 @@ bool DataFrame::hasColumnName(const std::string& name) const {
     return false;
 }
 
+// Function to get the column with the given name. Return as std::variant type
 DataFrame::ColDataType DataFrame::getColumn(const std::string& name) const {
     auto it = columns.find(name);
     if (it != columns.end()) {
@@ -154,7 +129,7 @@ DataFrame::ColDataType DataFrame::getColumn(const std::string& name) const {
     throw std::runtime_error("Column '" + name + "' not found");
 }
 
-
+// Function to get the column with the given name. Return as std::vector<T> type
 template<typename T>
 std::vector<T> DataFrame::getColumn(const std::string& name) const {
     auto it = columns.find(name);
@@ -167,7 +142,7 @@ std::vector<T> DataFrame::getColumn(const std::string& name) const {
     throw std::runtime_error("Column '" + name + "' not found");
 }
 
-
+// Function to read a CSV file and return a DataFrame object. All columns will be of type std::string
 DataFrame DataFrame::readCSV(const std::string &filename) {
     DataFrame df;
     std::ifstream file(filename);
@@ -207,11 +182,12 @@ DataFrame DataFrame::readCSV(const std::string &filename) {
     return df;
 }
 
+// Convenience function to write the DataFrame to a CSV file with "," as delimiter
 void DataFrame::toCsv(const std::string& filename) const {
     toCsv(filename, ',');
 }
 
-// Function to write the DataFrame to a CSV file with ";" as delimiter
+// Function to write the DataFrame to a CSV file with 'delim' as delimiter
 void DataFrame::toCsv(const std::string& filename, const char delim) const {
     std::ofstream file(filename);
     if (!file.is_open()) {
@@ -250,7 +226,7 @@ void DataFrame::toCsv(const std::string& filename, const char delim) const {
     file.close();
 }
 
-
+// Function to convert a string column to a double column
 void DataFrame::convertStringColumnToDouble(const std::string& columnName) {
     auto columnValues = getColumn(columnName);
 
@@ -274,7 +250,8 @@ void DataFrame::convertStringColumnToDouble(const std::string& columnName) {
 }
 
 
-
+// Helper function to group the data by the key column. The column type of keys to group by can be
+// any from the variant, the same the type of values in the column to group by
 template<typename KeyType, typename GroupType>
 void DataFrame::groupByHelper(const std::string colName, const ColDataType& colValues, const std::vector<KeyType>& keyColumn, std::map<KeyType, DataFrame>& groupedData) const {
     std::vector<GroupType> convertedColValues = std::get<std::vector<GroupType>>(colValues);
@@ -289,7 +266,8 @@ void DataFrame::groupByHelper(const std::string colName, const ColDataType& colV
     }
 }
 
-
+// Function to group the data by the key column. The type of this key column must match the template type T,
+// but can be any of the types in the variant ColDataType
 template<typename KeyType>
 std::map<KeyType, DataFrame> DataFrame::groupBy(const std::string& keyColumnName) const {
     const ColDataType& keyColumnValues = getColumn(keyColumnName);
@@ -321,7 +299,7 @@ std::map<KeyType, DataFrame> DataFrame::groupBy(const std::string& keyColumnName
         groupedData[key] = templateDataFrame;
     }
 
-    // Step 4
+    // Step 4: Loop over every column and group the data by the key column
     for (const auto& [colName, colValues] : columns) {
         if (colName == keyColumnName) continue;
 

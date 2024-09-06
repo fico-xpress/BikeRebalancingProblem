@@ -19,12 +19,12 @@
 
 class BrpUtils {
 public:
-    static std::vector<std::vector<double>> convertScenariosToMatrix(std::map<std::string, DataFrame> scenarios);
-
+    // To save run information to a DataFrame
     using TimeDataType = std::chrono::time_point<std::chrono::high_resolution_clock>;
     static void saveTimeToInfoDf(DataFrame& infoDf, TimeDataType start, TimeDataType end, std::string columnName, std::string fileName);
     static void saveDoubleToInfoDf(DataFrame& infoDf, double value, std::string columnName, std::string fileName);
 
+    // Some basic vector operations
     static double mySum(std::vector<double> a);
     static std::vector<double> myElementWiseMultiplication(double a, std::vector<double>& b);
     static std::vector<double> myElementWiseMultiplication(std::vector<double>& a, std::vector<double>& b);
@@ -34,9 +34,11 @@ public:
     static double myScalarProduct(std::vector<double>& a, std::vector<double>& b);
     static std::vector<std::vector<double>> myMultiplyMatrices(std::vector<std::vector<double>>& A, std::vector<std::vector<double>>& B);
 
+    // Vector to output (CSV or console)
     static void writeVectorToCSV(std::vector<double>& vec, const std::string& filename);
     static void printDoubleVec(std::vector<double> values, std::string delim);
 
+    // To get data from files
     static std::vector<std::vector<std::vector<double>>> getTripsData(int nr_stations, int nr_scenarios);
     static std::vector<std::vector<double>> getNetTripsData(int nr_stations, int nr_scenarios);
     static std::vector<double> getStationInfoData(int nr_stations);
@@ -46,17 +48,6 @@ public:
     static std::vector<double> getAverageDistances(std::vector<std::vector<double>> c_ij);
 private:
 };
-
-std::vector<std::vector<double>> BrpUtils::convertScenariosToMatrix(std::map<std::string, DataFrame> scenarios) {
-    std::vector<std::vector<double>> matrix;
-
-    for (auto& [name, df] : scenarios) {
-        std::vector<double> classicNetColumn = df.getColumn<double>("CLASSIC_net");
-        matrix.push_back(std::move(classicNetColumn));
-    }
-
-    return matrix;
-}
 
 
 using TimeDataType = std::chrono::time_point<std::chrono::high_resolution_clock>;
