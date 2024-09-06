@@ -62,12 +62,12 @@ std::vector<std::vector<double>> BrpUtils::convertScenariosToMatrix(std::map<std
 using TimeDataType = std::chrono::time_point<std::chrono::high_resolution_clock>;
 void BrpUtils::saveTimeToInfoDf(DataFrame& infoDf, TimeDataType start, TimeDataType end, std::string columnName, std::string fileName) {
     long long duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    std::cout << "'" << columnName << "' took " << duration << "ms (" << duration/1000.0 << "s)" << std::endl;
+    std::cout << "\t'" << columnName << "' took " << duration << "ms (" << duration/1000.0 << "s)" << std::endl;
 
     if (!infoDf.hasColumnName(columnName)) {
         infoDf.addColumn(columnName, std::vector<long long>{duration});
 
-        infoDf.toCsv("./time_data/" + fileName + ".csv");
+        infoDf.toCsv("./data_out/" + fileName + ".csv");
     }
 }
 
@@ -75,7 +75,7 @@ void BrpUtils::saveDoubleToInfoDf(DataFrame& infoDf, double value, std::string c
     if (!infoDf.hasColumnName(columnName)) {
         infoDf.addColumn(columnName, std::vector<double>{value});
 
-        infoDf.toCsv("./time_data/" + fileName + ".csv");
+        infoDf.toCsv("./data_out/" + fileName + ".csv");
     }
 }
 

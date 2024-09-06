@@ -22,7 +22,7 @@ Two-Stage Stochastic Problem (TSSP):
     - 2nd stage: variables y, u, and o
     - p[s] is the probability of scenario s occurring.
 Then we solve the following DEP formulation:
-    min  c*x + sum_{s=1}^{S} p[s] * ( c*y[s] + q1*u[s] + q2*o[s])
+    min  c*x + sum_{s=1}^{S} p[s] * ( c*y[s] + q1*u[s] + q2*o[s] )
     s.t. A*x <= b
          T*x + y[s] + u[s] + o[s] = h[s]  for all s = 1, ..., S
          y[s] >= 0
@@ -591,7 +591,7 @@ void BRP_LShapedMethod::exportHistoryStatsToCsv() {
     for (auto& [colName, colValues] : iterHistoryInfo) {
         historyDF.addColumn(colName, colValues);
     }
-    historyDF.toCsv("./gap_data/" + instanceName + "_history.csv");
+    historyDF.toCsv("./data_out/" + instanceName + "_progress.csv");
 }
 
 
@@ -869,7 +869,7 @@ int main() {
         // Objective coefficients for each second-stage decision variable y_ij
         std::vector<std::vector<double>> c_ij = distanceMatrix;
         // Objective coefficients c for each first-stage decision variable x_i
-        std::vector<double> c_i = avgDistance_i;1
+        std::vector<double> c_i = avgDistance_i;
         // Objective coefficients for each second-stage variable u_i
         std::vector<double> q1_i(NR_STATIONS, max_dist / 2);
         // Objective coefficients for each second-stage variable o_i
@@ -892,23 +892,22 @@ int main() {
         // mainProb.callbacks->addMessageCallback(XpressProblem::CallbackAPI::console);
 
         // Initialize the Bike Rebalancing Problem solver
-        BRP_LShapedMethod brpSolver =
-            BRP_LShapedMethod(mainProb, c_i, b_i, p_s, c_ij, q1_i, q2_i, d_s_i);
+        BRP_LShapedMethod brpSolver = BRP_LShapedMethod(mainProb, c_i, b_i, p_s, c_ij, q1_i, q2_i, d_s_i);
 
 
         /********************************* Problem Solving **************************************/
         bool verbose = false;        // To print information about scenario-subproblems
         bool printSolutions = false; // Only set to true for very small problem instances
 
-        // Solve the Bike Rebanlancing Problem using the L-Shaped Method
+        // Solve the Bike Rebalancing Problem using the L-Shaped Method
         brpSolver.runLShapedMethod(verbose, printSolutions);
 
 
         /****************************** Save & Export Metadata **********************************/
         // End of solving time
         end = std::chrono::high_resolution_clock::now();
-        BrpUtils::saveTimeToInfoDf(infoDf, start, end, "Problem Solving (ms)", brpSolver.instanceName);
-        // Save number of iterations
+        BrpUtils::saveTimeToInfoDf(infoDf, start, end, "Total Problem Solving (ms)", brpSolver.instanceName);
+        // Save number of iterations and other relevant run information
         BrpUtils::saveDoubleToInfoDf(infoDf, brpSolver.getNumberOfIterations(),       "NrIterations", brpSolver.instanceName);
         BrpUtils::saveDoubleToInfoDf(infoDf, brpSolver.mainProb.getObjVal(),          "ObjectiveVal", brpSolver.instanceName);
         BrpUtils::saveDoubleToInfoDf(infoDf, brpSolver.getFirstStageCosts(),          "FirstStageObjectiveVal", brpSolver.instanceName);

@@ -600,7 +600,7 @@ void BRP_LShapedMethod::exportHistoryStatsToCsv() {
     for (auto& [colName, colValues] : iterHistoryInfo) {
         historyDF.addColumn(colName, colValues);
     }
-    historyDF.toCsv("./gap_data/" + instanceName + "_history.csv");
+    historyDF.toCsv("./data_out/" + instanceName + "_progress.csv");
 }
 
 
@@ -890,25 +890,24 @@ int main() {
         // mainProb.callbacks->addMessageCallback(XpressProblem::CallbackAPI::console);
 
         // Initialize the Bike Rebalancing Problem solver
-        BRP_LShapedMethod brpSolver =
-            BRP_LShapedMethod(mainProb, c_i, b_i, p_s, c_ij, q_ij, d_s_ij);
+        BRP_LShapedMethod brpSolver = BRP_LShapedMethod(mainProb, c_i, b_i, p_s, c_ij, q_ij, d_s_ij);
 
 
         /********************************* Problem Solving **************************************/
         bool verbose = false;        // To print information about scenario-subproblems
         bool printSolutions = false; // Only set to true for very small problem instances
 
-        // Solve the Bike Rebanlancing Problem using the L-Shaped Method
+        // Solve the Bike Rebalancing Problem using the L-Shaped Method
         brpSolver.runLShapedMethod(verbose, printSolutions);
 
 
         /****************************** Save & Export Metadata **********************************/
         // End of solving time
         end = std::chrono::high_resolution_clock::now();
-        BrpUtils::saveTimeToInfoDf(infoDf, start, end, "Problem Solving (ms)", brpSolver.instanceName);
-        // Save number of iterations
+        BrpUtils::saveTimeToInfoDf(infoDf, start, end, "Total Problem Solving (ms)", brpSolver.instanceName);
+        // Save number of iterations and other relevant run information
         BrpUtils::saveDoubleToInfoDf(infoDf, brpSolver.getNumberOfIterations(),       "NrIterations", brpSolver.instanceName);
-        BrpUtils::saveDoubleToInfoDf(infoDf, brpSolver.mainProb.getObjVal(),        "ObjectiveVal", brpSolver.instanceName);
+        BrpUtils::saveDoubleToInfoDf(infoDf, brpSolver.mainProb.getObjVal(),          "ObjectiveVal", brpSolver.instanceName);
         BrpUtils::saveDoubleToInfoDf(infoDf, brpSolver.getFirstStageCosts(),          "FirstStageObjectiveVal", brpSolver.instanceName);
         BrpUtils::saveDoubleToInfoDf(infoDf, brpSolver.getExpectedSecondStageCosts(), "SecondStageObjectiveVal", brpSolver.instanceName);
         BrpUtils::saveDoubleToInfoDf(infoDf, brpSolver.getOptimalityGap() * 100.0,    "PercentualOptimalityGap", brpSolver.instanceName);
