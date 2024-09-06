@@ -22,7 +22,7 @@ Two-Stage Stochastic Problem (TSSP):
     - 2nd stage: variables y, u, and o
     - p[s] is the probability of scenario s occurring.
 Then we solve the following DEP formulation:
-    min  c*x + sum_{s=1}^{S} p[s] * ( c*y[s] + q1*u[s] + q2*o[s] )
+    min  c*x + sum_{s=1}^{S} p[s] * ( c*y[s] + q1*u[s] + q2*o[s] x)
     s.t. A*x <= b
          T*x + y[s] + u[s] + o[s] = h[s]  for all s = 1, ..., S
          y[s] >= 0
