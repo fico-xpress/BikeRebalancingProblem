@@ -33,20 +33,20 @@ public:
         std::vector<std::vector<std::vector<double>>>& d_s_ij);
 
     // Probability of each scenario s
-    std::vector<double>& p_s;
+    const std::vector<double>& p_s;
 
     // Objective coefficients c for each first-stage decision variables x_i
-    std::vector<double>& c_i;
+    const std::vector<double>& c_i;
     // Right-hand coefficients b for each first-stage constraint j
-    std::vector<double>& b_i;
+    const std::vector<double>& b_i;
 
     // Objective coefficients for each second-stage decision variable y_ij
-    std::vector<std::vector<double>> c_ij;
+    const std::vector<std::vector<double>>& c_ij;
     // Objective coefficients for each second-stage decision variable u_ij
-    std::vector<std::vector<double>> q_ij;
+    const std::vector<std::vector<double>>& q_ij;
     // Demand for bike trips for each scenario s, is used when computing 
     // the right-hand side coefficients h for all 2nd-stage constraints
-    std::vector<std::vector<std::vector<double>>> d_s_ij;
+    const std::vector<std::vector<std::vector<double>>>& d_s_ij;
     // Convenience matrix to store the net demand for each scenario s and station i based on d_s_ij
     std::vector<std::vector<double>> netDemand_s_i;
 

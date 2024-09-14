@@ -25,18 +25,18 @@ public:
     static void saveDoubleToInfoDf(DataFrame& infoDf, double value, std::string columnName, std::string fileName);
 
     // Some basic vector operations
-    static double mySum(std::vector<double> a);
-    static std::vector<double> myElementWiseMultiplication(double a, std::vector<double>& b);
-    static std::vector<double> myElementWiseMultiplication(std::vector<double>& a, std::vector<double>& b);
-    static std::vector<double> myElementWiseAddition(std::vector<double>& a, std::vector<double>& b);
-    static std::vector<double> myElementWiseSubtraction(std::vector<double>& a, std::vector<double>& b);
+    static double mySum(const std::vector<double> a);
+    static std::vector<double> myElementWiseMultiplication(const double a, const std::vector<double>& b);
+    static std::vector<double> myElementWiseMultiplication(const std::vector<double>& a, const std::vector<double>& b);
+    static std::vector<double> myElementWiseAddition(const std::vector<double>& a, const std::vector<double>& b);
+    static std::vector<double> myElementWiseSubtraction(const std::vector<double>& a, const std::vector<double>& b);
 
-    static double myScalarProduct(std::vector<double>& a, std::vector<double>& b);
-    static std::vector<std::vector<double>> myMultiplyMatrices(std::vector<std::vector<double>>& A, std::vector<std::vector<double>>& B);
+    static double myScalarProduct(const std::vector<double>& a, const std::vector<double>& b);
+    static std::vector<std::vector<double>> myMatrixMultiplication(const std::vector<std::vector<double>>& A, const std::vector<std::vector<double>>& B);
 
     // Vector to output (CSV or console)
     static void writeVectorToCSV(std::vector<double>& vec, const std::string& filename);
-    static void printDoubleVec(std::vector<double> values, std::string delim);
+    static void printDoubleVec(const std::vector<double> values, std::string delim);
 
     // To get data from files
     static std::vector<std::vector<std::vector<double>>> getTripsData(int nr_stations, int nr_scenarios);
@@ -44,8 +44,8 @@ public:
     static std::vector<double> getStationInfoData(int nr_stations);
     static std::vector<std::vector<double>> getStationDistancesData(int nr_stations);
     
-    static double getMaxDistance(std::vector<std::vector<double>> c_ij);
-    static std::vector<double> getAverageDistances(std::vector<std::vector<double>> c_ij);
+    static double getMaxDistance(const std::vector<std::vector<double>> c_ij);
+    static std::vector<double> getAverageDistances(const std::vector<std::vector<double>> c_ij);
 private:
 };
 
@@ -77,7 +77,7 @@ double BrpUtils::mySum(std::vector<double> a) {
     return ans;
 }
 
-std::vector<double> BrpUtils::myElementWiseMultiplication(double a, std::vector<double>& b) {
+std::vector<double> BrpUtils::myElementWiseMultiplication(const double a, const std::vector<double>& b) {
     std::vector<double> ans(b.size());
     for (int i=0 ; i<b.size(); i++) {
         ans[i] = a * b[i];
@@ -85,7 +85,7 @@ std::vector<double> BrpUtils::myElementWiseMultiplication(double a, std::vector<
     return ans;
 }
 
-std::vector<double> BrpUtils::myElementWiseMultiplication(std::vector<double>& a, std::vector<double>& b) {
+std::vector<double> BrpUtils::myElementWiseMultiplication(const std::vector<double>& a, const std::vector<double>& b) {
     if (a.size() != b.size()) throw std::invalid_argument("Vectors a and b have different lengths");
 
     std::vector<double> ans(a.size());
@@ -95,7 +95,7 @@ std::vector<double> BrpUtils::myElementWiseMultiplication(std::vector<double>& a
     return ans;
 }
 
-std::vector<double> BrpUtils::myElementWiseAddition(std::vector<double>& a, std::vector<double>& b) {
+std::vector<double> BrpUtils::myElementWiseAddition(const std::vector<double>& a, const std::vector<double>& b) {
     if (a.size() != b.size()) throw std::invalid_argument("Vectors a and b have different lengths");
 
     std::vector<double> ans(a.size());
@@ -106,7 +106,7 @@ std::vector<double> BrpUtils::myElementWiseAddition(std::vector<double>& a, std:
 }
 
 
-std::vector<double> BrpUtils::myElementWiseSubtraction(std::vector<double>& a, std::vector<double>& b) {
+std::vector<double> BrpUtils::myElementWiseSubtraction(const std::vector<double>& a, const std::vector<double>& b) {
     if (a.size() != b.size()) throw std::invalid_argument("Vectors a and b have different lengths");
 
     std::vector<double> ans(a.size());
@@ -116,7 +116,7 @@ std::vector<double> BrpUtils::myElementWiseSubtraction(std::vector<double>& a, s
     return ans;
 }
 
-double BrpUtils::myScalarProduct(std::vector<double>& a, std::vector<double>& b) {
+double BrpUtils::myScalarProduct(const std::vector<double>& a, const std::vector<double>& b) {
     if (a.size() != b.size()) throw std::invalid_argument("Vectors a and b have different lengths");
 
     double ans = 0.0;
@@ -126,7 +126,7 @@ double BrpUtils::myScalarProduct(std::vector<double>& a, std::vector<double>& b)
     return ans;
 }
 
-std::vector<std::vector<double>> BrpUtils::myMultiplyMatrices(std::vector<std::vector<double>>& A, std::vector<std::vector<double>>& B) {
+std::vector<std::vector<double>> BrpUtils::myMatrixMultiplication(const std::vector<std::vector<double>>& A, const std::vector<std::vector<double>>& B) {
     int rowsA = A.size();
     int colsA = A[0].size();
     int rowsB = B.size();
@@ -163,7 +163,7 @@ void BrpUtils::writeVectorToCSV(std::vector<double>& vec, const std::string& fil
     }
 }
 
-void BrpUtils::printDoubleVec(std::vector<double> values, std::string delim) {
+void BrpUtils::printDoubleVec(const std::vector<double> values, std::string delim) {
     for (int i=0; i<values.size(); i++) {
         std::cout << values[i] << delim;
     }
@@ -180,7 +180,7 @@ std::vector<std::vector<double>> BrpUtils::getStationDistancesData(int nr_statio
 
     // Distances data:
     std::vector<std::vector<double>> c_ij;
-    DataFrame distanceData = DataFrame::readCSV(distanceDataFilename);
+    DataFrame distanceData = DataFrame::readCSV(distanceDataFilename, ';');
     for (std::string colName : distanceData.columnNames()) {
         distanceData.convertStringColumnToDouble(colName);
         std::vector<double> distVec = distanceData.getColumn<double>(colName);
@@ -190,7 +190,7 @@ std::vector<std::vector<double>> BrpUtils::getStationDistancesData(int nr_statio
     return c_ij;
 }
 
-std::vector<double> BrpUtils::getAverageDistances(std::vector<std::vector<double>> c_ij) {
+std::vector<double> BrpUtils::getAverageDistances(const std::vector<std::vector<double>> c_ij) {
     std::vector<double> c_i(c_ij.size());
     for (int i=0; i<c_ij.size(); i++) {
         c_i[i] = BrpUtils::mySum(c_ij[i]) / c_ij.size() / c_ij.size();
@@ -198,7 +198,7 @@ std::vector<double> BrpUtils::getAverageDistances(std::vector<std::vector<double
     return c_i;
 }
 
-double BrpUtils::getMaxDistance(std::vector<std::vector<double>> c_ij) {
+double BrpUtils::getMaxDistance(const std::vector<std::vector<double>> c_ij) {
     double max_dist = 0.0;
     for (int i=0; i<c_ij.size(); i++) {
         double row_max = *std::max_element(c_ij[i].begin(), c_ij[i].end());
@@ -216,7 +216,7 @@ std::vector<double> BrpUtils::getStationInfoData(int nr_stations) {
     }
 
     // Station information data:
-    DataFrame stationData = DataFrame::readCSV(stationDataFilename);
+    DataFrame stationData = DataFrame::readCSV(stationDataFilename, ';');
     stationData.convertStringColumnToDouble("nbDocks");
     std::vector<double> b_i = stationData.getColumn<double>("nbDocks");
 
@@ -250,7 +250,7 @@ std::vector<std::vector<std::vector<double>>> BrpUtils::getTripsData(int nr_stat
         } else {
             tripDataFilename = "./data/matrix_data/matrix_data_size" + std::to_string(nr_stations) + "_" + std::to_string(day) + ".csv";
         }
-        DataFrame tripData = DataFrame::readCSV(tripDataFilename);
+        DataFrame tripData = DataFrame::readCSV(tripDataFilename, ';');
         for (int station_nr=0; station_nr<tripData.length(); station_nr++) {
             tripData.convertStringColumnToDouble(std::to_string(station_nr));
         }

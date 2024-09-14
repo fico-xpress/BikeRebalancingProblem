@@ -26,7 +26,7 @@ public:
     void addColumn(const std::string& name);
     void addColumn(const std::string& columnName, const ColDataType& columnValues);
 
-    // Functions to get a column by name and check if a column with the given name exists
+    // Functions to get a copy of a column by name and check if a column with the given name exists
     template<typename T>
     std::vector<T> getColumn(const std::string& columnName) const;
     ColDataType getColumn(const std::string& columnName) const;
@@ -40,7 +40,7 @@ public:
     std::map<T, DataFrame> groupBy(const std::string& keyColumnName) const;
 
     // Convert a CSV file to a DataFrame object or other way around
-    static DataFrame readCSV(const std::string& filename);
+    static DataFrame readCSV(const std::string& filename, const char delim);
     void toCsv(const std::string& filename) const;
     void toCsv(const std::string& filename, const char delim) const;
 
@@ -113,11 +113,7 @@ std::vector<std::string> DataFrame::columnNames() const {
 
 // Function to check if a column with the given name exists in the DataFrame
 bool DataFrame::hasColumnName(const std::string& name) const {
-    auto it = columns.find(name);
-    if (it != columns.end()) {
-        return true;
-    }
-    return false;
+    return columns.find(name) != columns.end();
 }
 
 // Function to get the column with the given name. Return as std::variant type
@@ -129,7 +125,8 @@ DataFrame::ColDataType DataFrame::getColumn(const std::string& name) const {
     throw std::runtime_error("Column '" + name + "' not found");
 }
 
-// Function to get the column with the given name. Return as std::vector<T> type
+// Function to get the column with the given name.
+// The column-data is copied into a std::vector<T> type, instead of the std::variant type
 template<typename T>
 std::vector<T> DataFrame::getColumn(const std::string& name) const {
     auto it = columns.find(name);
@@ -143,37 +140,41 @@ std::vector<T> DataFrame::getColumn(const std::string& name) const {
 }
 
 // Function to read a CSV file and return a DataFrame object. All columns will be of type std::string
-DataFrame DataFrame::readCSV(const std::string &filename) {
+DataFrame DataFrame::readCSV(const std::string &filename, const char delim) {
     DataFrame df;
-    std::ifstream file(filename);
 
+    // Open the file
+    std::ifstream file(filename);
     if (!file.is_open()) {
-        std::cerr << "Could not open the file: " << filename << std::endl;
-        return df;
+        throw std::runtime_error("Could not open the file: " + filename);
     }
 
     std::string line;
     bool isHeader = true;
     std::vector<std::string> headers;
 
+    // Loop over each line in the file
     while (std::getline(file, line)) {
         std::stringstream lineStream(line);
         std::string cell;
         std::vector<std::string> row;
 
-        while (std::getline(lineStream, cell, ';')) {
+        // Loop over each column in the current line/row
+        while (std::getline(lineStream, cell, delim)) {
             row.push_back(cell);
         }
 
         if (isHeader) {
+            // Add all headers as empty columns
             headers = row;
             for (const auto& header : headers) {
-                df.addColumn<std::string>(header);//, std::vector<std::string>{});
+                df.addColumn<std::string>(header);
             }
             isHeader = false;
         } else {
+            // Add one extra row of data to each column in the DataFrame
             for (size_t i = 0; i < row.size(); i++) {
-                std::get<std::vector<std::string>>(df.columns[headers[i]]).push_back(row[i]);
+                ColDataTypeUtils::addElement(df.columns[headers[i]], row[i]);
             }
         }
     }
@@ -241,6 +242,7 @@ void DataFrame::convertStringColumnToDouble(const std::string& columnName) {
     std::vector<double> doubleColumn;
     doubleColumn.reserve(stringColumn.size());
 
+    // Convert the string values to double
     for (const std::string& str : stringColumn) {
         doubleColumn.push_back(std::stod(str));
     }
@@ -261,6 +263,7 @@ void DataFrame::groupByHelper(const std::string colName, const ColDataType& colV
         colGroups[keyColumn[i]].push_back(convertedColValues[i]);
     }
 
+    // Copy the colGroups map to the groupedData map as a means of returning
     for (auto& [groupKey, values] : colGroups) {
         groupedData[groupKey].columns[colName] = std::move(colGroups[groupKey]);
     }

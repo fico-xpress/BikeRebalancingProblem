@@ -4,14 +4,14 @@
 #*                                              *
 #*  file makefile                               *
 #*  `````````````                               *
-#*  Makefile for Xpress C++ and Java examples   *
+#*  Makefile for Xpress C++ examples            *
 #*                                              *
 #*  (c) 2008-2024 Fair Isaac Corporation        *
 #*      author: S.Heipcke, 2000, rev. Jan. 2014 *
 #*              M.Deken, rev. June 2024         *
 #************************************************
 
-.SUFFIXES: .cpp .exe .class .java
+.SUFFIXES: .cpp .exe
 
 # Before using this makefile remember to set the environment variable
 # XPRESSDIR_CPP to the directory where Xpress-Optimizer is installed
@@ -29,14 +29,7 @@
 # nmake exaple.exe
 
 
-##### JAVA ########
-.java.class:
-    javac -classpath $(XPRESSDIR_JAVA)/lib/xprs.jar;. $*.java
-    java -classpath $(XPRESSDIR_JAVA)/lib/xprs.jar;. $*
-
-
 #### C++ ########
-ADDITIONAL_CPP_SOURCES = DataFrame.cpp
 CPP_FLAGS = /Zc:__cplusplus /std:c++17 /nologo /EHsc /Zi /MD /I"$(XPRESSDIR_CPP)\include"
 LIB_FLAGS = /link /libpath:$(XPRESSDIR_CPP)\lib xprs.lib xprscxx.lib
 

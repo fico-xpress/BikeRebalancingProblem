@@ -103,7 +103,7 @@ private:
     std::vector<Variable> o;
 
     // Scenario index
-    int s;
+    const int s;
 
     // Helper method to compute the new right hand sides of the subproblem's
     // constraints based on the latest main problem solution
@@ -130,20 +130,20 @@ public:
         std::vector<double>& q2_i, std::vector<std::vector<double>>& d_s_i);
 
     // Probability of each scenario s
-    std::vector<double>& p_s;
+    const std::vector<double>& p_s;
 
     // Objective coefficients c for each first-stage decision variables x_i
-    std::vector<double>& c_i;
+    const std::vector<double>& c_i;
     // Right-hand coefficients b for each first-stage constraint j
-    std::vector<double>& b_i;
+    const std::vector<double>& b_i;
 
     // Objective coefficients for each second-stage decision variable y_ij
-    std::vector<std::vector<double>> c_ij;
+    const std::vector<std::vector<double>>& c_ij;
     // Objective coefficients for each second-stage decision variable u_i and o_i
-    std::vector<double> q1_i, q2_i;
+    const std::vector<double>& q1_i, q2_i;
     // Demand for bikes at station i for each scenario s, is used when computing 
     // the right-hand side coefficients h for all 2nd-stage constraints
-    std::vector<std::vector<double>> d_s_i;
+    const std::vector<std::vector<double>>& d_s_i;
 
     // Used in the filename when exporting values to csv
     std::string instanceName;
@@ -580,7 +580,7 @@ void BRP_LShapedMethod::generateMultiOptimalityCuts(std::vector<std::vector<doub
         optCutRhs_s[s] = p_s[s] * BrpUtils::myScalarProduct(pi_s_j[s], h_s_j[s]);
 
         // Compute the optimality cut coefficients of the first-stage variables: E = p[s] * pi_s @ T_s
-        std::vector<double> result_i = BrpUtils::myMultiplyMatrices(std::vector<std::vector<double>>{pi_s_j[s]}, T_s_j_i[s])[0];
+        std::vector<double> result_i = BrpUtils::myMatrixMultiplication(std::vector<std::vector<double>>{pi_s_j[s]}, T_s_j_i[s])[0];
         optCutLhs_s_i[s] = BrpUtils::myElementWiseMultiplication(p_s[s], result_i);
     }
 }
