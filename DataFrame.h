@@ -244,7 +244,11 @@ void DataFrame::convertStringColumnToDouble(const std::string& columnName) {
 
     // Convert the string values to double
     for (const std::string& str : stringColumn) {
-        doubleColumn.push_back(std::stod(str));
+        std::size_t pos;
+        double value = std::stod(str, &pos); // pos will contain the position of the first non-converted character
+        // Check whether the entire string was converted to a double
+        if (pos != str.size()) throw std::runtime_error("'" + str + "' is not a double precision number");
+        doubleColumn.push_back(value);
     }
 
     // Replace the string column with the double column

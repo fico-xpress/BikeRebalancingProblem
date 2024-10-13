@@ -38,12 +38,13 @@ Then we solve the following DEP formulation:
 Note: standard form of a TSSP allows matrix T to be different per scenario, i.e. T[s]. While this is not
 the case for the specific problem solved here, the code has been set up to still allow for this flexibility.
 
-The DEP can be decomposed using Benders decomposition. More specifically, we use the L-shaped method,
-which is a specific type of Benders decomposition, to solve the problem. In this decomposition we
-introduce new auxiliary variables theta[s], which approximate the value of the 2nd stage costs for
-each scenario s. Notation is kept as consistent as possible with the book `Introduction to Stochastic
-Programming` by Birge and Louveaux. Section 5.1.a in this book provides an excellent explanation of
-the L-shaped method and optimality cuts as used here.
+The DEP is simply one large MIP and can therefore be solved directly with the FICO(R) Xpress Solver. This 
+is not what we do in this file. Intead, the DEP can be decomposed using Benders decomposition. More 
+specifically, we use the L-shaped method, which is a specific type of Benders decomposition, to solve
+the problem. In this decomposition we introduce new auxiliary variables theta[s], which approximate
+the value of the 2nd stage costs for each scenario s. Notation is kept as consistent as possible with
+the book `Introduction to Stochastic Programming` by Birge and Louveaux. Section 5.1.a in this book 
+provides an excellent explanation of the L-shaped method and optimality cuts as used here.
 
 Following the book, we get the following Main Problem:
     min  c*x + sum_{s=1}^{S} theta[s]
@@ -101,6 +102,9 @@ private:
     std::vector<std::vector<Variable>> y;
     std::vector<Variable> u;
     std::vector<Variable> o;
+
+    // All 2nd stage constraints
+    std::vector<Inequality> subProbConstraints;
 
     // Scenario index
     const int s;
@@ -785,6 +789,7 @@ void BRP_SubProblem::makeInitialSubProbFormulation() {
     // Rebalancing decicions: moving bikes from station i to station j just before the end-of-day
     this->y = subProbPtr->addVariables(NR_STATIONS, NR_STATIONS)
         .withType(ColumnType::Continuous)
+        .withUB([](int i, int j){ return (i == j ? 0.0 : XPRS_PLUSINFINITY ); })
         .withName([&](int i, int j){ return xpress::format("s%d_y(%d,%d)", s, i, j); })
         .toArray();
 
@@ -842,9 +847,16 @@ void BRP_SubProblem::makeInitialSubProbFormulation() {
     std::vector<double> rhsCoefficients = computeNewRightHandSides();
 
     // Combine the lhs and rhs and create all 2nd-stage constraints
-    subProbPtr->addConstraints(NR_STATIONS, [&](int i) { return (lhsExpressions[0*NR_STATIONS + i] == rhsCoefficients[0*NR_STATIONS + i]); });
-    subProbPtr->addConstraints(NR_STATIONS, [&](int i) { return (lhsExpressions[1*NR_STATIONS + i] >= rhsCoefficients[1*NR_STATIONS + i]); });
-    subProbPtr->addConstraints(NR_STATIONS, [&](int i) { return (lhsExpressions[2*NR_STATIONS + i] >= rhsCoefficients[2*NR_STATIONS + i]); });
+    xpress::Iterable<Inequality> ineq1, ineq2, ineq3;
+    ineq1 = subProbPtr->addConstraints(NR_STATIONS, [&](int i) { return (lhsExpressions[0*NR_STATIONS + i] == rhsCoefficients[0*NR_STATIONS + i]); });
+    ineq2 = subProbPtr->addConstraints(NR_STATIONS, [&](int i) { return (lhsExpressions[1*NR_STATIONS + i] >= rhsCoefficients[1*NR_STATIONS + i]); });
+    ineq3 = subProbPtr->addConstraints(NR_STATIONS, [&](int i) { return (lhsExpressions[2*NR_STATIONS + i] >= rhsCoefficients[2*NR_STATIONS + i]); });
+
+    // Store all the constraints in a single vector for access in elsewhere in the Subproblem class
+    subProbConstraints.reserve(mainProbSolver->NR_2ND_STAGE_CONSTRAINTS);
+    std::copy(ineq1.begin(), ineq1.end(), std::back_inserter(subProbConstraints));
+    std::copy(ineq2.begin(), ineq2.end(), std::back_inserter(subProbConstraints));
+    std::copy(ineq3.begin(), ineq3.end(), std::back_inserter(subProbConstraints));
 
     /* OBJECTIVE */
     LinExpression objective = LinExpression::create();
@@ -899,13 +911,15 @@ void BRP_SubProblem::updateFirstStageValuesInConstraints() {
     // New right hand side values based on new values of x
     std::vector<double> newRightHandSides = computeNewRightHandSides();
 
-    // Make a vector with integer values from 0 to newRightHandSides.size()-1
-    // This means we want to change the right-hand side values of ALL constraints
-    std::vector<int> newRightHandSidesIndices(newRightHandSides.size());
-    std::iota(newRightHandSidesIndices.begin(), newRightHandSidesIndices.end(), 0);
-
     // Update the right-hand sides of all constraints
-    subProbPtr->chgRhs(newRightHandSides.size(), newRightHandSidesIndices, newRightHandSides);
+    for (int j=0; j<mainProbSolver->NR_2ND_STAGE_CONSTRAINTS; j++) {
+        subProbConstraints[j].setRhs(newRightHandSides[j]);
+        // There is an alternative way to set the rhs of all constraints with one function call using
+        // `XpressProblem::chgRhs(int nrows, vector<int> rowindices, vector<double> newRightHandSides)`
+        // This alternative approach uses the indices of the rows in the constraint matrix, which is more
+        // error-prone as it explicitly deals with indices instead of the higher-level Inequality objects.
+        // Therefore, generally speaking, the object-oriented approach `Inequality.setRhs()` is preferred.
+    }
 }
 
 /**

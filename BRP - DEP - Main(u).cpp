@@ -14,12 +14,15 @@ Two-Stage Stochastic Problem (TSSP):
     - 1st stage: variables x
     - 2nd stage: variables y and u
     - p[s] is the probability of scenario s occurring.
-Then we solve the following DEP formulation:
+The following is the full DEP formulation which we solve:
     min  c*x + sum_{s=1}^{S} p[s] * ( c*y[s] + q*u[s] )
     s.t. A*x <= b
          T*x + y[s] + u[s] = h[s]  for all s = 1, ..., S
          y[s] >= 0
          u[s] >= 0
+
+The DEP is simply one large MIP and can therefore be solved directly with the 
+FICO(R) Xpress Solver. This is done in this file.
 */
 
 class BRP_DEP {
@@ -198,6 +201,8 @@ void BRP_DEP::modelAndSolveProb(DataFrame &infoDf) {
  * the rebalancing decisions y_ij, which represent the number of bikes to move from station i to
  * station j during the day. The second stage also includes the unmet demand variables u_ij,
  * representing the number of cancelled trips from station i to station j.
+ * 
+ * For performance reasons, variable names `.withName()` are omitted
  */
 void BRP_DEP::createVariables() {
     std::cout << "\tCreating Variables" << std::endl;
@@ -208,6 +213,7 @@ void BRP_DEP::createVariables() {
     // Rebalancing decicions: moving bikes from station i to station j just before the end-of-day
     this->y = prob.addVariables(NR_SCENARIOS, NR_STATIONS, NR_STATIONS)
         .withType(ColumnType::Integer)
+        .withUB([](int s, int i, int j){ return (i == j ? 0.0 : XPRS_PLUSINFINITY ); })
         // .withName([](int s, int i, int j){ return xpress::format("s%d_y_(%d,%d)", s, i, j); })
         .toArray();
 
