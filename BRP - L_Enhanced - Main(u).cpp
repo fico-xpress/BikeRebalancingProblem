@@ -442,10 +442,11 @@ void BRP_LShapedMethod::solveMainProb(bool solveRelaxation) {
         // solve the MIP
         mainProb.optimize();
         // Store the MIP solution for the next iteration
-        if (savedMipSol.size() == 0) {
-            savedMipSol.resize(mainProb.attributes.getCols());
+        if (mainProb.attributes.getSolStatus() != SolStatus::Optimal && mainProb.attributes.getSolStatus() != SolStatus::Feasible) {
+            std::ostringstream oss; oss << mainProb.attributes.getSolStatus(); // Convert xpress::SolStatus to String
+            throw std::runtime_error("Optimization failed with status " + oss.str());
         }
-        mainProb.getMipSol(savedMipSol);
+        savedMipSol = mainProb.getSolution();
     }
 
     // Check the solution status
