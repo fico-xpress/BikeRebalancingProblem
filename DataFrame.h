@@ -294,7 +294,7 @@ std::map<KeyType, DataFrame> DataFrame::groupBy(const std::string& keyColumnName
 
         std::visit([&](const auto& colValuesVariant) {
             // Extract whether the variant contains vector<string> or vector<double>
-            using ColType = std::decay_t<decltype(colValuesVariant)>::value_type;
+            using ColType = typename std::decay_t<decltype(colValuesVariant)>::value_type;
             // Add new column with the correct data type
             templateDataFrame.addColumn<ColType>(origColName);
         }, origColValues);
@@ -312,7 +312,7 @@ std::map<KeyType, DataFrame> DataFrame::groupBy(const std::string& keyColumnName
 
         std::visit([&](const auto& colValuesVariant) {
             // Extract whether the variant contains vector<string> or vector<double>
-            using GroupType = std::decay_t<decltype(colValuesVariant)>::value_type;
+            using GroupType = typename std::decay_t<decltype(colValuesVariant)>::value_type;
             // Add new column with the correct data type
             groupByHelper<KeyType,GroupType>(colName, colValues, keyColumn, groupedData);
         }, colValues);

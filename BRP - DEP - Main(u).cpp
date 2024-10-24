@@ -7,6 +7,7 @@
 
 using namespace xpress;
 using namespace xpress::objects;
+using namespace xpress::objects::utils;
 
 /*
 In this file, we solve the following Deterministic Equivalent Problem (DEP) formulation of a 
@@ -241,7 +242,7 @@ void BRP_DEP::createConstraints() {
     std::cout << "\tCreating Constraints" << std::endl;
 
     // First Stage constraints
-    prob.addConstraint(Utils::sum(x) == NR_BIKES);
+    prob.addConstraint(sum(x) == NR_BIKES);
     prob.addConstraints(NR_STATIONS, [&](int i) { return (x[i] <= b_i[i]); });
 
 
@@ -293,8 +294,8 @@ void BRP_DEP::createObjective() {
     for (int s=0; s<NR_SCENARIOS; s++) {
         LinExpression scenObj_s = LinExpression::create();
         for (int i=0; i<NR_STATIONS; i++) {
-            // scenObj_s.addTerms(Utils::scalarProduct(y[s][i], c_ij[i]));
-            // scenObj_s.addTerms(Utils::scalarProduct(u[s][i], q_ij[i]));
+            // scenObj_s.addTerms(scalarProduct(y[s][i], c_ij[i]));
+            // scenObj_s.addTerms(scalarProduct(u[s][i], q_ij[i]));
             for (int j=0; j<NR_STATIONS; j++) {
                 scenObj_s.addTerm(p_s[s] * c_ij[i][j], y[s][i][j]);
                 scenObj_s.addTerm(p_s[s] * q_ij[i][j], u[s][i][j]);
@@ -302,9 +303,9 @@ void BRP_DEP::createObjective() {
         }
         scenObj[s] = scenObj_s;// * p_s[s];
     }
-    LinExpression firstStageCosts = Utils::scalarProduct(x, c_i);
+    LinExpression firstStageCosts = scalarProduct(x, c_i);
     // obj.addTerms(firstStageCosts);
-    Expression obj = Utils::sum(scenObj) + firstStageCosts;
+    Expression obj = sum(scenObj) + firstStageCosts;
 
     prob.setObjective(obj, xpress::ObjSense::Minimize);
 }
@@ -320,8 +321,8 @@ void BRP_DEP::solveProb(bool solveRelaxation) {
     else prob.optimize();
 
     // Check the solution status
-    if (prob.getSolStatus() != SolStatus::Optimal && prob.getSolStatus() != SolStatus::Feasible) {
-        std::ostringstream oss; oss << prob.getSolStatus(); // Convert xpress::SolStatus to String
+    if (prob.attributes.getSolStatus() != SolStatus::Optimal && prob.attributes.getSolStatus() != SolStatus::Feasible) {
+        std::ostringstream oss; oss << prob.attributes.getSolStatus(); // Convert xpress::SolStatus to String
         throw std::runtime_error("Optimization failed with status " + oss.str());
     }
 
@@ -339,16 +340,16 @@ double BRP_DEP::getFirstStageCosts() {
  * @return The total cost of the second stage decisions
  */
 double BRP_DEP::getExpectedSecondStageCosts() {
-    return prob.getObjVal() - getFirstStageCosts();
+    return prob.attributes.getObjVal() - getFirstStageCosts();
 }
 
 /**
  * @return The MIP optimality gap of the solution
  */
 double BRP_DEP::getOptimalityGap() {
-    std::cout << "Best bound: " << prob.getBestBound() << std::endl;
-    std::cout << "Best solution: " << prob.getMipBestObjVal() << std::endl;
-    return (prob.getBestBound() - prob.getMipBestObjVal()) / prob.getMipBestObjVal();
+    std::cout << "Best bound: " << prob.attributes.getBestBound() << std::endl;
+    std::cout << "Best solution: " << prob.attributes.getMipBestObjVal() << std::endl;
+    return (prob.attributes.getBestBound() - prob.attributes.getMipBestObjVal()) / prob.attributes.getMipBestObjVal();
     return 0;
 }
 
@@ -375,7 +376,7 @@ void BRP_DEP::printOptimalSolutionInfo() {
     // Print optimal objective values
     std::cout << "1st Stage Costs = " << getFirstStageCosts() << std::endl;
     std::cout << "2nd Stage Costs = " << getExpectedSecondStageCosts() << std::endl;
-    std::cout << "    Total Costs = " << prob.getObjVal() << std::endl;
+    std::cout << "    Total Costs = " << prob.attributes.getObjVal() << std::endl;
 }
 
 /**
@@ -447,8 +448,8 @@ int main() {
         /********************************  Problem Creation ************************************/
         // Create a problem instance
         XpressProblem prob;
-        prob.callbacks->addMessageCallback(XpressProblem::CallbackAPI::console);
-        prob.setMipRelStop(0.02);
+        prob.callbacks.addMessageCallback(XpressProblem::console);
+        prob.controls.setMipRelStop(0.02);
 
         // Initialize the Bike Rebalancing Problem solver
         BRP_DEP brpSolver = BRP_DEP(prob, c_i, b_i, p_s, c_ij, q_ij, d_s_ij);
@@ -464,7 +465,7 @@ int main() {
         end = std::chrono::high_resolution_clock::now();
         BrpUtils::saveTimeToInfoDf(infoDf, start, end, "Total Problem Solving (ms)", brpSolver.instanceName);
         // Save other relevant run information
-        BrpUtils::saveDoubleToInfoDf(infoDf, brpSolver.prob.getObjVal(),              "ObjectiveVal", brpSolver.instanceName);
+        BrpUtils::saveDoubleToInfoDf(infoDf, brpSolver.prob.attributes.getObjVal(),              "ObjectiveVal", brpSolver.instanceName);
         BrpUtils::saveDoubleToInfoDf(infoDf, brpSolver.getFirstStageCosts(),          "FirstStageObjectiveVal", brpSolver.instanceName);
         BrpUtils::saveDoubleToInfoDf(infoDf, brpSolver.getExpectedSecondStageCosts(), "SecondStageObjectiveVal", brpSolver.instanceName);
         BrpUtils::saveDoubleToInfoDf(infoDf, brpSolver.getOptimalityGap() * 100.0,    "PercentualOptimalityGap", brpSolver.instanceName);

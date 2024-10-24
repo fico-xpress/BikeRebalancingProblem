@@ -8,6 +8,7 @@
 
 using namespace xpress;
 using namespace xpress::objects;
+using namespace xpress::objects::utils;
 
 /*
 This code shows the following non-trivial things in relation to the FICO(R) Xpress Solver C++ API:
@@ -356,13 +357,13 @@ void BRP_LShapedMethod::makeInitialMainProbFormulation() {
             .toArray();
 
     /* CONSTRAINTS */
-    mainProb.addConstraint(Utils::sum(x_i) == NR_BIKES).setName("Nr bikes constraint");
+    mainProb.addConstraint(sum(x_i) == NR_BIKES).setName("Nr bikes constraint");
     mainProb.addConstraints(NR_1ST_STAGE_VARIABLES, [&](int i) {
         return (x_i[i] <= b_i[i]).setName(xpress::format("Station_Capacity_%d", i));
     });
 
     /* OBJECTIVE */
-    mainProb.setObjective(Utils::scalarProduct(x_i, c_i), xpress::ObjSense::Minimize);
+    mainProb.setObjective(scalarProduct(x_i, c_i), xpress::ObjSense::Minimize);
 }
 
 /**
@@ -386,14 +387,14 @@ void BRP_LShapedMethod::solveMainProb(bool solveRelaxation) {
         mainProb.lpOptimize();
     } else {
         // Stop the MIP solver after 1% optimality gap (we do not care too much about good integer solutions)
-        mainProb.setMipRelStop(0.01);
+        mainProb.controls.setMipRelStop(0.01);
         // solve the MIP
         mainProb.optimize();
     }
 
     // Check the solution status
-    if (mainProb.getSolStatus() != SolStatus::Optimal && mainProb.getSolStatus() != SolStatus::Feasible) {
-        std::ostringstream oss; oss << mainProb.getSolStatus(); // Convert xpress::SolStatus to String
+    if (mainProb.attributes.getSolStatus() != SolStatus::Optimal && mainProb.attributes.getSolStatus() != SolStatus::Feasible) {
+        std::ostringstream oss; oss << mainProb.attributes.getSolStatus(); // Convert xpress::SolStatus to String
         throw std::runtime_error("Optimization failed with status " + oss.str());
     }
 
@@ -401,18 +402,18 @@ void BRP_LShapedMethod::solveMainProb(bool solveRelaxation) {
     this->lastXValues_i = mainProb.getSolution(this->x_i);
 
     // If the theta-variable has not yet been added to the mainProb, its value is Minus Infinity
-    if (mainProb.getOriginalCols() == x_i.size()) {
+    if (mainProb.attributes.getOriginalCols() == x_i.size()) {
         this->lastThetaValue = XPRS_MINUSINFINITY;
     } else {
         this->lastThetaValue = mainProb.getSolution(this->theta);
     }
 
     // Save the objective value of the main problem for exporting later
-    iterHistoryInfo["mainObjVal_t"].push_back(mainProb.getObjVal());
+    iterHistoryInfo["mainObjVal_t"].push_back(mainProb.attributes.getObjVal());
 
     /* PRINT */
     std::cout << "\tSolved Main Problem" << std::endl;
-    std::cout << "\t\tMain Objective = " << mainProb.getObjVal() << std::endl;
+    std::cout << "\t\tMain Objective = " << mainProb.attributes.getObjVal() << std::endl;
     if (verbose) {
         if (printSolutions)
             for (int i=0; i<x_i.size(); i++) std::cout << "\t\t" << x_i[i].getName() << " = " << lastXValues_i[i] << std::endl;
@@ -444,7 +445,7 @@ void BRP_LShapedMethod::printOptimalSolutionInfo() {
     // Print optimal objective values
     std::cout << "1st Stage Costs = " << getFirstStageCosts() << std::endl;
     std::cout << "2nd Stage Costs = " << getExpectedSecondStageCosts() << std::endl;
-    std::cout << "    Total Costs = " << mainProb.getObjVal() << std::endl;
+    std::cout << "    Total Costs = " << mainProb.attributes.getObjVal() << std::endl;
 }
 
 /**
@@ -457,10 +458,10 @@ void BRP_LShapedMethod::addOptimalityCutToMainProb(std::vector<double>& optCutLh
     if (optCutLhs.size() != x_i.size()) throw std::invalid_argument("Vectors optCutLhs and x have different lengths");
 
     // Add the optimality cut as a constraint to the main problem
-    mainProb.addConstraint(Utils::scalarProduct(x_i, optCutLhs) + theta >= optCutRhs);
+    mainProb.addConstraint(scalarProduct(x_i, optCutLhs) + theta >= optCutRhs);
 
     if (printSolutions) {
-        std::cout << "\t\t" << (Utils::scalarProduct(x_i, optCutLhs) + theta).toString() << " >= " << optCutRhs << std::endl << std::endl;
+        std::cout << "\t\t" << (scalarProduct(x_i, optCutLhs) + theta).toString() << " >= " << optCutRhs << std::endl << std::endl;
     }
 }
 
@@ -538,7 +539,7 @@ double BRP_LShapedMethod::getExpectedSecondStageCosts() {
 double BRP_LShapedMethod::getLastSolutionSecondStageCosts() {
     double avg2ndStageCosts = 0.0;
     for (int s=0; s<NR_SCENARIOS; s++) {
-        avg2ndStageCosts += p_s[s] * savedSubproblems[s].subProbPtr->getObjVal();
+        avg2ndStageCosts += p_s[s] * savedSubproblems[s].subProbPtr->attributes.getObjVal();
     }
     return avg2ndStageCosts;
 }
@@ -641,7 +642,7 @@ BRP_SubProblem::BRP_SubProblem(BRP_LShapedMethod* mainProbSolver, std::unique_pt
  */
 void BRP_SubProblem::makeInitialSubProbFormulation() {
     // Uncomment to enable solver messages to be printed to the console:
-    // subProbPtr->callbacks->addMessageCallback(XpressProblem::CallbackAPI::console);
+    // subProbPtr->callbacks.addMessageCallback(XpressProblem::console);
     int NR_STATIONS = mainProbSolver->NR_STATIONS;
 
     /* VARIABLES */
@@ -762,8 +763,8 @@ void BRP_SubProblem::updateFirstStageValuesInConstraints() {
     // we have to update the right-hand sides of some of the constraints in the subproblem
 
     // Some dimension checking
-    int nrConstraints1 = subProbPtr->getOriginalRows();
-    int nrConstraints2 = subProbPtr->getRows();
+    int nrConstraints1 = subProbPtr->attributes.getOriginalRows();
+    int nrConstraints2 = subProbPtr->attributes.getRows();
     if (nrConstraints1 != nrConstraints2) throw std::invalid_argument("Please disable presolve for subproblems");
     if (nrConstraints1 != mainProbSolver->NR_2ND_STAGE_CONSTRAINTS) throw std::invalid_argument("Please disable presolve for subproblems");
 
@@ -792,8 +793,8 @@ void BRP_SubProblem::solveSubProblem() {
     subProbPtr->optimize();
 
     // Check the solution status
-    if (subProbPtr->getSolStatus() != SolStatus::Optimal && subProbPtr->getSolStatus() != SolStatus::Feasible) {
-        std::ostringstream oss; oss << subProbPtr->getSolStatus(); // Convert xpress::SolStatus to String
+    if (subProbPtr->attributes.getSolStatus() != SolStatus::Optimal && subProbPtr->attributes.getSolStatus() != SolStatus::Feasible) {
+        std::ostringstream oss; oss << subProbPtr->attributes.getSolStatus(); // Convert xpress::SolStatus to String
         throw std::runtime_error("Optimization of subProblem " + std::to_string(s) + " in iteration " +
                                  std::to_string(mainProbSolver->iter) + " failed with status " + oss.str());
     }
@@ -810,7 +811,7 @@ void BRP_SubProblem::solveSubProblem() {
 void BRP_SubProblem::printOptimalSolutionInfo() {
     // Print some general information
     std::cout << "\tScenario " << s << ": Sub Problem Solved" << std::endl;
-    std::cout << "\t\tObjective value = " << subProbPtr->getObjVal() << std::endl;
+    std::cout << "\t\tObjective value = " << subProbPtr->attributes.getObjVal() << std::endl;
     std::vector<double> solutionValues = subProbPtr->getSolution();
 
     // Get some information about the quality of the optimal solution values
@@ -903,7 +904,7 @@ int main() {
         /********************************  Problem Creation ************************************/
         // Create a problem instance
         XpressProblem mainProb;
-        // mainProb.callbacks->addMessageCallback(XpressProblem::CallbackAPI::console);
+        // mainProb.callbacks.addMessageCallback(XpressProblem::console);
 
         // Initialize the Bike Rebalancing Problem solver
         BRP_LShapedMethod brpSolver = BRP_LShapedMethod(mainProb, c_i, b_i, p_s, c_ij, q1_i, q2_i, d_s_i);
@@ -923,7 +924,7 @@ int main() {
         BrpUtils::saveTimeToInfoDf(infoDf, start, end, "Total Problem Solving (ms)", brpSolver.instanceName);
         // Save number of iterations and other relevant run information
         BrpUtils::saveDoubleToInfoDf(infoDf, brpSolver.getNumberOfIterations(),       "NrIterations", brpSolver.instanceName);
-        BrpUtils::saveDoubleToInfoDf(infoDf, brpSolver.mainProb.getObjVal(),          "ObjectiveVal", brpSolver.instanceName);
+        BrpUtils::saveDoubleToInfoDf(infoDf, brpSolver.mainProb.attributes.getObjVal(),          "ObjectiveVal", brpSolver.instanceName);
         BrpUtils::saveDoubleToInfoDf(infoDf, brpSolver.getFirstStageCosts(),          "FirstStageObjectiveVal", brpSolver.instanceName);
         BrpUtils::saveDoubleToInfoDf(infoDf, brpSolver.getExpectedSecondStageCosts(), "SecondStageObjectiveVal", brpSolver.instanceName);
         BrpUtils::saveDoubleToInfoDf(infoDf, brpSolver.getOptimalityGap() * 100.0,    "PercentualOptimalityGap", brpSolver.instanceName);
