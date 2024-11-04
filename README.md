@@ -23,4 +23,4 @@ Furthermore, there are two helper files:
     2. BrpUtils.h, which contains some functions that all 6 of the problem-files call.
             These include data-reading and data-writing operations, numerical operations, etc.
 
-Finally, there are the Makefiles to compile and execute the .cpp code
+Finally, there are the Makefiles to compile the .cpp code
