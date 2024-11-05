@@ -880,7 +880,7 @@ int main() {
 
         // Set the instance parameters
         int nr_stations = 50;
-        int nr_scenarios = 50;
+        int nr_scenarios = 10;
 
         /****************** Data Reading From Files ******************************/
         std::vector<std::vector<double>> netBikeDemands = BrpUtils::getNetTripsData(nr_stations, nr_scenarios);

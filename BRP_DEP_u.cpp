@@ -412,8 +412,8 @@ int main() {
 
     try {
 
-        int nr_stations = 100;
-        int nr_scenarios = 30;
+        int nr_stations = 50;
+        int nr_scenarios = 50;
 
         /****************** Data Reading From Files ******************************/
 

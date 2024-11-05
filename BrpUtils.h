@@ -189,12 +189,7 @@ void BrpUtils::printDoubleVec(const std::vector<double> values, std::string deli
 }
 
 std::vector<std::vector<double>> BrpUtils::getStationDistancesData(int nr_stations) {
-    std::string distanceDataFilename;
-    if (nr_stations == -1) {
-        distanceDataFilename = "./data/Station_Distances.csv";
-    } else {
-        distanceDataFilename = "./data/Station_Distances_size" + std::to_string(nr_stations) + ".csv";
-    }
+    std::string distanceDataFilename = "./data_in/Station_Distances_size" + std::to_string(nr_stations) + ".csv";
 
     // Distances data:
     std::vector<std::vector<double>> c_ij;
@@ -226,12 +221,7 @@ double BrpUtils::getMaxDistance(const std::vector<std::vector<double>> c_ij) {
 }
 
 std::vector<double> BrpUtils::getStationInfoData(int nr_stations) {
-    std::string stationDataFilename;
-    if (nr_stations == -1) {
-        stationDataFilename = "./data/Station_Info.csv";
-    } else {
-        stationDataFilename = "./data/Station_Info_size" + std::to_string(nr_stations) + ".csv";
-    }
+    std::string stationDataFilename = "./data_in/Station_Info_size" + std::to_string(nr_stations) + ".csv";
 
     // Station information data:
     DataFrame stationData = DataFrame::readCSV(stationDataFilename, ';');
@@ -258,39 +248,44 @@ std::vector<std::vector<double>> BrpUtils::getNetTripsData(int nr_stations, int 
 
 std::vector<std::vector<std::vector<double>>> BrpUtils::getTripsData(int nr_stations, int nr_scenarios) {
 
-    std::string tripDataFilename;
+    // Read trip information data:
+    std::string tripDataFilename = "./data_in/Trips_Data_size" + std::to_string(nr_stations) + ".csv";
+    DataFrame tripData = DataFrame::readCSV(tripDataFilename, ';');
 
-    // Trip information data:
-    std::vector<DataFrame> scenarioData;
-    for (int day=0; day<nr_scenarios; day++) {
-        if (nr_stations == -1) {
-            tripDataFilename = "./data/matrix_data/matrix_data_" + std::to_string(day) + ".csv";
-        } else {
-            tripDataFilename = "./data/matrix_data/matrix_data_size" + std::to_string(nr_stations) + "_" + std::to_string(day) + ".csv";
-        }
-        DataFrame tripData = DataFrame::readCSV(tripDataFilename, ';');
-        for (int station_nr=0; station_nr<tripData.length(); station_nr++) {
-            tripData.convertStringColumnToDouble(std::to_string(station_nr));
-        }
-        scenarioData.push_back(tripData);
+    // Convert strings to doubles in the correct columns of the DataFrame
+    for (int station_nr=0; station_nr<nr_stations; station_nr++) {
+        tripData.convertStringColumnToDouble(std::to_string(station_nr));
     }
+
+    // Group the data by date
+    std::map<std::string, DataFrame> scenarios = tripData.groupBy<std::string>("date");
+
+    // Extract the unique dates and sort them (alphabetically in this case)
+    std::vector<std::string> sortedDays;
+    for (const auto& pair : scenarios) {
+        sortedDays.push_back(pair.first);
+    }
+    std::sort(sortedDays.begin(), sortedDays.end());
+
+    // Extract the first nr_scenarios scenarios
+    std::vector<DataFrame> scenarioData;
+    int day_nr = 0;
+    for (std::string date : sortedDays) {
+        scenarioData.push_back(scenarios[date]);
+        day_nr++;
+        if (day_nr >= nr_scenarios) break;
+    }
+    assert (scenarioData.size() == nr_scenarios);
 
     // Convert column-wise dataframe to row-wise matrix
-    int NR_SCENARIOS2 = scenarioData.size();
-    int NR_STATIONS2 = scenarioData[0].length();
-    std::vector<std::vector<std::vector<double>>> d_s_ij2(NR_SCENARIOS2, std::vector<std::vector<double>>(NR_STATIONS2, std::vector<double>(NR_STATIONS2)));
-    for (int s=0; s<NR_SCENARIOS2; s++) {
-        for (int station_nr=0; station_nr<NR_STATIONS2; station_nr++) {
+    std::vector<std::vector<std::vector<double>>> d_s_ij(nr_scenarios, std::vector<std::vector<double>>(nr_stations, std::vector<double>(nr_stations)));
+    for (int s=0; s<nr_scenarios; s++) {
+        for (int station_nr=0; station_nr<nr_stations; station_nr++) {
             std::vector<double> colValues = scenarioData[s].getColumn<double>(std::to_string(station_nr));
-            for (int i=0; i<NR_STATIONS2; i++) {
-                d_s_ij2[s][i][station_nr] = colValues[i];
+            for (int i=0; i<nr_stations; i++) {
+                d_s_ij[s][i][station_nr] = colValues[i];
             }
         }
-    }
-
-    std::vector<std::vector<std::vector<double>>> d_s_ij(nr_scenarios);
-    for (int s=0; s<nr_scenarios; s++) {
-        d_s_ij[s] = d_s_ij2[s];
     }
 
     return d_s_ij;

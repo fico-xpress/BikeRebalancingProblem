@@ -37,6 +37,9 @@
 *.txt
 *.png
 
+# Don't ignore data files in the data_in folder
+!data_in/*.csv
+
 # Xpress files
 *.ilk
 *.pdb
@@ -45,7 +48,3 @@
 # Java files
 *.java
 *.class
-
-# Old files
-/old/*
-/First_Draft/*
