@@ -412,8 +412,9 @@ int main() {
 
     try {
 
-        int nr_stations = 50;
-        int nr_scenarios = 50;
+        // Set the instance parameters
+        int nr_stations = 50;    // Either 50, 100, or 794
+        int nr_scenarios = 50;   // Any number between 1 and 50
 
         /****************** Data Reading From Files ******************************/
 

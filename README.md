@@ -4,13 +4,13 @@ TSSP's can be solved in different ways. The book `Introduction to Stochastic Pro
 by Birge and Louveaux can provide further context to those unfamiliar with TSSP.
 
 There are two different formulations for the same problem:
-    1. Main formulation. (Using variables `u`)
-    2. Alternative formulation. (Using variables `u` and `o`)
+1. Main formulation. (Using variables `u`)
+2. Alternative formulation. (Using variables `u` and `o`)
 
 Each formulation is solved in 3 ways: 
-    1. Deterministic Equivalent Problem
-    2. L-Shaped Method
-    3. Enhanced L-Shaped Method
+1. Deterministic Equivalent Problem
+2. L-Shaped Method
+3. Enhanced L-Shaped Method
 
 This gives rise to the 3*2=6 main files, all solving the same problem in a different way.
 Section 5.1.a in the mentioned book provides an excellent explanation of the L-shaped method 
@@ -19,8 +19,15 @@ of the 6 main files further explain which of the two formulations is used, and w
 3 solution methods is applied, and how.
 
 Furthermore, there are two helper files:
-    1. DataFrame.h, for common data operations comparable to Pandas in Python
-    2. BrpUtils.h, which contains some functions that all 6 of the problem-files call.
-            These include data-reading and data-writing operations, numerical operations, etc.
+1. DataFrame.h, for common data operations comparable to Pandas in Python
+2. BrpUtils.h, which contains some functions that all 6 of the problem-files call.
+        These include data-reading and data-writing operations, numerical operations, etc.
 
 Finally, there are the Makefiles to compile the .cpp code
+
+The data that was used in this project is open-source data as provided by Transport for London.
+The raw trips data can be downloaded from [here](https://cycling.data.tfl.gov.uk/) and the station
+location coordinates can be retrieved from [here](https://tfl.gov.uk/tfl/syndication/feeds/cycle-hire/livecyclehireupdates.xml).
+The raw data was processed by the script `get_and_preprocess_data.py`, which can can be found in
+the `/data_in/` folder, along with the processed data files. 
+

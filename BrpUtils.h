@@ -35,6 +35,16 @@
 #include <chrono>    // For timekeeping
 #include "DataFrame.h"
 
+/*
+In this file, some utility functions are defined that are used in all 6 of the BRP cpp files.
+Utilities include data-reading and data-writing operations, numerical operations, etc.
+
+The data that is being read by some of the functions in this file was preprocessed by a Python
+script. The raw data is open-source data and made publicly available by Transport for London.
+Check the python script in `/data_in/get_and_preprocess_data.py` for more information on exactly
+where the raw data was retrieved from.
+*/
+
 class BrpUtils {
 public:
     // To save run information to a DataFrame

@@ -33,6 +33,12 @@
 #include <iostream>
 #include <set>
 
+/*
+This file contains a simple DataFrame class with only basic functionality implemented.
+One might compare this DataFrame class to the pandas DataFrame in Python, but then much more limited.
+*/
+
+
 class DataFrame {
 public:
     // The only accepted data types by this DataFrame class
